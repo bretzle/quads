@@ -1,0 +1,47 @@
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const gl = @import("zigglgen").generateBindingsModule(b, .{
+        .api = .gl,
+        .version = .@"3.3",
+        .profile = .core,
+    });
+
+    const rgfw = b.addModule("rgfw", .{
+        .root_source_file = b.path("src/rgfw.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "gl", .module = gl },
+        },
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "basic",
+        .root_source_file = b.path("src/basic.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    b.installArtifact(exe);
+
+    exe.root_module.addImport("rgfw", rgfw);
+
+    const run_cmd = b.addRunArtifact(exe);
+
+    run_cmd.step.dependOn(b.getInstallStep());
+
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&run_cmd.step);
+
+    const t = b.addTest(.{
+        .root_source_file = b.path("src/rgfw.zig"),
+    });
+    t.root_module.addImport("gl", gl);
+
+    const test_step = b.step("test", "run tests");
+    test_step.dependOn(&t.step);
+}
