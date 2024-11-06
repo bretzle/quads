@@ -1,7 +1,13 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const os = @import("winapi.zig");
 
 pub const gl = @import("gl");
+
+const platform = switch (builtin.os.tag) {
+    .windows => @import("backend/windows.zig"),
+    else => unreachable,
+};
 
 pub const EventType = enum {
     none,
@@ -48,1048 +54,99 @@ pub const MouseButton = enum { left, middle, right, scroll_up, scroll_down };
 
 var gl_procs: gl.ProcTable = undefined;
 
-pub const Point = struct {
-    x: i32 = 0,
-    y: i32 = 0,
-};
-pub const Rect = struct {
-    x: i32 = 0,
-    y: i32 = 0,
-    w: i32 = 0,
-    h: i32 = 0,
-};
-pub const Area = struct {
-    w: u32 = 0,
-    h: u32 = 0,
-};
+const max_drops = 260;
+const max_path = 260;
 
-pub const Monitor = struct {
-    name: [128]u8,
-    rect: Rect,
-    scaleX: f32,
-    scaleY: f32,
-    physW: f32,
-    physH: f32,
+var RGFW_root: ?*Window = null;
+var RGFW_className: ?[:0]const u8 = null;
+
+pub var RGFW_jsPressed: [4]std.EnumArray(JoystickButton, bool) = .{std.EnumArray(JoystickButton, bool).initFill(false)} ** 4;
+var RGFW_joysticks: [4]i32 = std.mem.zeroes([4]i32);
+var RGFW_joystickCount: u16 = 0;
+
+var RGFW_mouseButtons: std.EnumArray(MouseButton, KeyState) = std.EnumArray(MouseButton, KeyState).initFill(.{});
+
+pub const MonitorInfo = struct {
+    iIndex: u32 = 0,
+    hMonitor: ?os.HMONITOR = null,
 };
 
-pub fn getMonitors() []const Monitor {
-    var info = MonitorInfo{ .iIndex = 0, .hMonitor = undefined };
-
-    while (os.EnumDisplayMonitors(null, null, GetMonitorHandle, @bitCast(@intFromPtr(&info))) != 0) {}
-
-    return &RGFW_monitors;
-}
-
-pub fn getPrimaryMonitor() Monitor {
-    return win32CreateMonitor(os.MonitorFromPoint(.{}, os.MONITOR_DEFAULTTOPRIMARY));
-}
-
-// TODO turn into union
-pub const Event = struct {
-    keyName: [16]u8,
-    droppedFiles: [][]u8,
-    droppedFilesCount: u32,
-    typ: EventType,
-    point: Point,
-    keyCode: u8,
-    repeat: bool,
-    inFocus: bool,
-    lockState: u8,
-    button: MouseButton,
-    joy_button: JoystickButton,
-    scroll: f64,
-    joystick: u16,
-    axisesCount: u8,
-    axis: [2]Point,
-    frameTime: u64,
-    frameTime2: u64,
+pub const WindowOptions = packed struct {
+    /// the window doesn't have border
+    no_border: bool = false,
+    ///  the window cannot be resized  by the user
+    no_resize: bool = false,
+    /// the window supports drag and dro
+    allow_dnd: bool = false,
+    /// the window should hide the mouse or not (can be toggled later on) using `RGFW_window_mouseSho
+    hide_mouse: bool = false,
+    /// the window is fullscreen by default or not
+    fullscreen: bool = false,
+    /// center the window on the screen
+    center: bool = false,
+    /// use OpenGL software rendering
+    opengl_software: bool = false,
+    /// (cocoa only), move to resource folder
+    cocoa_move_to_resource_dir: bool = false,
+    /// scale the window to the screen
+    scale_to_monitor: bool = false,
+    /// DO not init an API (mostly for bindings, you should use ` no_api: bool = false, ` in C
+    no_init_api: bool = false,
+    /// don't render (using the GPU based API
+    no_gpu_render: bool = false,
+    /// don't render (using the CPU based buffer rendering
+    no_cpu_render: bool = false,
+    /// the window is hidden
+    window_hide: bool = false,
+    hold_mouse: bool = false,
+    mouse_left: bool = false,
 };
 
-pub const WindowSrc = struct {
-    window: ?os.HWND,
-    hdc: os.HDC,
-    hOffset: u32,
-    ctx: os.HGLRC,
-    maxSize: Area,
-    minSize: Area,
+pub var RGFW_eventWindow: Window = undefined;
+
+const RGFW_mouseIconSrc = [11]u32{
+    os.OCR_NORMAL,
+    os.OCR_NORMAL,
+    os.OCR_IBEAM,
+    os.OCR_CROSS,
+    os.OCR_HAND,
+    os.OCR_SIZEWE,
+    os.OCR_SIZENS,
+    os.OCR_SIZENWSE,
+    os.OCR_SIZENESW,
+    os.OCR_SIZEALL,
+    os.OCR_NO,
 };
 
-pub const Window = struct {
-    src: WindowSrc,
-    userPtr: ?*anyopaque,
-    event: Event,
-    r: Rect,
-    _lastMousePoint: Point,
-    _winArgs: WindowOptions,
+var RGFWjoystickApi: ?*anyopaque = null;
+
+pub var RGFW_xinput2RGFW = [22]JoystickButton{
+    .a,
+    .b,
+    .x,
+    .y,
+    .r1,
+    .l1,
+    .l2,
+    .r2,
+    .none,
+    .none,
+    .none,
+    .none,
+    .none,
+    .none,
+    .none,
+    .none,
+    .up,
+    .down,
+    .left,
+    .right,
+    .start,
+    .select,
 };
 
-pub fn setClassName(name: [:0]const u8) void {
-    RGFW_className = name;
-}
-
-fn todo(msg: []const u8, loc: std.builtin.SourceLocation) void {
-    std.debug.print("TODO: {s} '{s}' ({s}:{})\n", .{ msg, loc.fn_name, loc.file, loc.line });
-}
-
-var wglinstance: ?os.HMODULE = null;
-var RGFW_XInput_dll: ?os.HMODULE = null;
-
-var RGFW_eventWindow: Window = undefined;
-
-const WglChoosePixelFormatARB = ?*const fn (?os.HDC, [*c]const i32, [*c]const f32, u32, [*c]i32, [*c]u32) callconv(os.WINAPI) i32;
-var wglChoosePixelFormatARB: WglChoosePixelFormatARB = null;
-
-const WglCreateContextAttribsARB = ?*const fn (?os.HDC, ?os.HGLRC, [*c]const i32) callconv(os.WINAPI) ?os.HGLRC;
-var wglCreateContextAttribsARB: WglCreateContextAttribsARB = null;
-
-pub fn createWindow(allocator: std.mem.Allocator, name: [:0]const u8, rect: Rect, args: WindowOptions) !*Window {
-    if (RGFW_XInput_dll == null) loadXInput();
-    if (wglinstance == null) wglinstance = os.LoadLibraryA("opengl32.dll");
-
-    RGFW_eventWindow.r = .{ .x = -1, .y = -1, .w = -1, .h = -1 };
-    RGFW_eventWindow.src.window = null;
-
-    const win = try RGFW_window_basic_init(allocator, rect, args);
-
-    win.src.maxSize = .{ .w = 0, .h = 0 };
-    win.src.minSize = .{ .w = 0, .h = 0 };
-
-    const inh = os.GetModuleHandleA(null) orelse unreachable;
-
-    if (RGFW_className == null) RGFW_className = name;
-    const class = os.WNDCLASSEXA{
-        .lpszClassName = RGFW_className.?,
-        .hInstance = inh,
-        .hCursor = os.LoadCursorA(null, os.IDC_ARROW),
-        .lpfnWndProc = WndProc,
-    };
-    _ = os.RegisterClassExA(&class);
-
-    var window_style: os.DWORD = os.WS_CLIPSIBLINGS | os.WS_CLIPCHILDREN;
-    var windowRect: os.RECT = undefined;
-    var clientRect: os.RECT = undefined;
-
-    if (!args.no_border) {
-        window_style |= os.WS_CAPTION | os.WS_SYSMENU | os.WS_BORDER | os.WS_MINIMIZEBOX;
-
-        if (!args.no_resize) {
-            window_style |= os.WS_SIZEBOX | os.WS_MAXIMIZEBOX | os.WS_THICKFRAME;
-        }
-    } else {
-        window_style |= os.WS_POPUP | os.WS_VISIBLE | os.WS_SYSMENU | os.WS_MINIMIZEBOX;
-    }
-
-    const dummyWin = os.CreateWindowExA(
-        0,
-        class.lpszClassName,
-        name,
-        window_style,
-        win.r.x,
-        win.r.y,
-        win.r.w,
-        win.r.h,
-        null,
-        null,
-        inh,
-        null,
-    ) orelse unreachable;
-
-    _ = os.GetWindowRect(dummyWin, &windowRect);
-    _ = os.GetClientRect(dummyWin, &clientRect);
-
-    win.src.hOffset = @intCast((windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top));
-    win.src.window = os.CreateWindowExA(
-        0,
-        class.lpszClassName,
-        name,
-        window_style,
-        win.r.x,
-        win.r.y,
-        win.r.w,
-        win.r.h +% @as(i32, @intCast(win.src.hOffset)),
-        null,
-        null,
-        inh,
-        null,
-    );
-
-    if (args.allow_dnd) {
-        win._winArgs.allow_dnd = true;
-        // RGFW_window_setDND(win, true);
-        todo("set dnd", @src());
-    }
-    win.src.hdc = os.GetDC(win.src.window) orelse unreachable;
-
-    if (!args.no_init_api) {
-        const dummy_dc = os.GetDC(dummyWin) orelse unreachable;
-
-        var pfd_flags: u32 = os.PFD_DRAW_TO_WINDOW | os.PFD_SUPPORT_OPENGL;
-        pfd_flags |= os.PFD_DOUBLEBUFFER;
-
-        var pfd = os.PIXELFORMATDESCRIPTOR{
-            .nVersion = 1,
-            .dwFlags = pfd_flags,
-            .cColorBits = 24,
-            .cAlphaBits = 8,
-            .cDepthBits = 32,
-            .cStencilBits = 8,
-        };
-
-        const pixel_format = os.ChoosePixelFormat(dummy_dc, &pfd);
-        _ = os.SetPixelFormat(dummy_dc, pixel_format, &pfd);
-
-        const dummy_context = os.wglCreateContext(dummy_dc);
-        _ = os.wglMakeCurrent(dummy_dc, dummy_context);
-
-        if (wglChoosePixelFormatARB == null) {
-            wglCreateContextAttribsARB = @ptrCast(os.wglGetProcAddress("wglCreateContextAttribsARB"));
-            wglChoosePixelFormatARB = @ptrCast(os.wglGetProcAddress("wglChoosePixelFormatARB"));
-        }
-
-        _ = os.wglMakeCurrent(dummy_dc, null);
-        _ = os.wglDeleteContext(dummy_context);
-        _ = os.ReleaseDC(dummyWin, dummy_dc);
-
-        if (wglCreateContextAttribsARB != null) {
-            pfd = os.PIXELFORMATDESCRIPTOR{
-                .nVersion = 1,
-                .dwFlags = pfd_flags,
-                .cColorBits = 32,
-                .cRedBits = 8,
-                .cGreenBits = 24,
-                .cGreenShift = 8,
-            };
-
-            if (args.opengl_software) {
-                pfd.dwFlags |= os.PFD_GENERIC_FORMAT | os.PFD_GENERIC_ACCELERATED;
-            }
-
-            if (wglChoosePixelFormatARB != null) {
-                const pixel_format_attribs = RGFW_initFormatAttribs(args.opengl_software);
-
-                var pixel_format_1: i32 = undefined;
-                var num_formats: u32 = undefined;
-                _ = wglChoosePixelFormatARB.?(win.src.hdc, @ptrCast(pixel_format_attribs), null, 1, @ptrCast(&pixel_format_1), @ptrCast(&num_formats));
-                if (num_formats == 0) {
-                    std.debug.print("Failed to create a pixel format for WGL.\n", .{});
-                }
-
-                _ = os.DescribePixelFormat(win.src.hdc, pixel_format_1, @sizeOf(os.PIXELFORMATDESCRIPTOR), @ptrCast(&pfd));
-                if (os.SetPixelFormat(win.src.hdc, pixel_format_1, &pfd) == 0) {
-                    std.debug.print("Failed to set the WGL pixel format.\n", .{});
-                }
-            }
-
-            const profile_mask = switch (gl.info.profile orelse comptime unreachable) {
-                .core => WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
-                .compatibility => WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
-                else => comptime unreachable,
-            };
-
-            const ctx_attribs = [_]i32{
-                WGL_CONTEXT_PROFILE_MASK_ARB,  profile_mask,
-                WGL_CONTEXT_MAJOR_VERSION_ARB, gl.info.version_major,
-                WGL_CONTEXT_MINOR_VERSION_ARB, gl.info.version_minor,
-                0,
-            };
-
-            win.src.ctx = wglCreateContextAttribsARB.?(win.src.hdc, null, &ctx_attribs) orelse unreachable;
-        } else {
-            std.debug.print("Failed to create an accelerated OpenGL Context\n", .{});
-
-            const pixel_format_ = os.ChoosePixelFormat(win.src.hdc, &pfd);
-            _ = os.SetPixelFormat(win.src.hdc, pixel_format_, &pfd);
-
-            win.src.ctx = os.wglCreateContext(win.src.hdc) orelse unreachable;
-        }
-
-        _ = os.wglMakeCurrent(win.src.hdc, win.src.ctx);
-    }
-
-    if (!args.no_init_api) {
-        _ = os.ReleaseDC(win.src.window, win.src.hdc);
-        win.src.hdc = os.GetDC(win.src.window) orelse unreachable;
-        _ = os.wglMakeCurrent(win.src.hdc, win.src.ctx);
-
-        std.debug.assert(gl_procs.init(getProcAddress));
-    }
-
-    _ = os.DestroyWindow(dummyWin);
-    RGFW_init_buffer(win);
-
-    if (args.scale_to_monitor) {
-        window_scaleToMonitor(win);
-    }
-
-    if (args.center) {
-        const screenR = getScreenSize();
-        window_move(win, .{ .x = @intCast((screenR.w - @as(u32, @intCast(win.r.w))) / 2), .y = @intCast((screenR.h - @as(u32, @intCast(win.r.h))) / 2) });
-    }
-
-    if (args.hide_mouse) {
-        window_showMouse(win, false);
-    }
-
-    _ = os.ShowWindow(win.src.window, os.SW_SHOWNORMAL);
-
-    if (RGFW_root == null) {
-        RGFW_root = win;
-    } else {
-        // _ = wglShareLists(RGFW_root.src.ctx, win.src.ctx);
-        unreachable;
-    }
-
-    return win;
-}
-
-pub fn getScreenSize() Area {
-    return .{
-        .w = @intCast(os.GetDeviceCaps(os.GetDC(null), os.HORZRES)),
-        .h = @intCast(os.GetDeviceCaps(os.GetDC(null), os.VERTRES)),
-    };
-}
-
-pub fn window_checkEvent(win: *Window) ?*Event {
-    if (win.event.typ == .quit) return null;
-
-    var msg: os.MSG = undefined;
-
-    if (RGFW_eventWindow.src.window == win.src.window) {
-        if (RGFW_eventWindow.r.x != -1) {
-            win.r.x = RGFW_eventWindow.r.x;
-            win.r.y = RGFW_eventWindow.r.y;
-            win.event.typ = .window_moved;
-            windowMoveCallback(win, win.r);
-        }
-        if (RGFW_eventWindow.r.w != -1) {
-            win.r.w = RGFW_eventWindow.r.w;
-            win.r.h = RGFW_eventWindow.r.h;
-            win.event.typ = .window_resized;
-            windowResizeCallback(win, win.r);
-        }
-        RGFW_eventWindow.src.window = null;
-        RGFW_eventWindow.r = .{ .x = -1, .y = -1, .w = -1, .h = -1 };
-        return &win.event;
-    }
-
-    // const drop = struct {
-    //     var static: HDROP = @import("std").mem.zeroes(HDROP);
-    // };
-    // _ = &drop;
-    if (win.event.typ == .dnd_init) {
-        todo("dnd init", @src());
-        //     if (win.event.droppedFilesCount != 0) {
-        //         var i: u32 = undefined;
-        //         _ = &i;
-        //         {
-        //             i = 0;
-        //             while (i < win.event.droppedFilesCount) : (i +%= 1) {
-        //                 win.event.droppedFiles[i][@as(c_uint, @intCast(@as(c_int, 0)))] = '\x00';
-        //             }
-        //         }
-        //     }
-        //     win.event.droppedFilesCount = 0;
-        //     win.event.droppedFilesCount = DragQueryFileW(drop.static, @as(c_uint, 4294967295), null, 0);
-        //     var i: u32 = undefined;
-        //     _ = &i;
-        //     {
-        //         i = 0;
-        //         while (i < win.event.droppedFilesCount) : (i +%= 1) {
-        //             const length: UINT = DragQueryFileW(drop.static, i, null, 0);
-        //             _ = &length;
-        //             var buffer: [*c]WCHAR = @as([*c]WCHAR, @ptrCast(@alignCast(calloc(@as(usize, @bitCast(@as(c_ulonglong, length))) +% @as(usize, @bitCast(@as(c_longlong, @as(c_int, 1)))), @sizeOf(WCHAR)))));
-        //             _ = &buffer;
-        //             _ = DragQueryFileW(drop.static, i, buffer, length +% 1);
-        //             _ = strncpy(win.event.droppedFiles[i], createUTF8FromWideStringWin32(buffer), @as(c_ulonglong, @bitCast(@as(c_longlong, @as(c_int, 260)))));
-        //             (blk: {
-        //                 const tmp = @as(c_int, 260) - @as(c_int, 1);
-        //                 if (tmp >= 0) break :blk win.event.droppedFiles[i] + @as(usize, @intCast(tmp)) else break :blk win.event.droppedFiles[i] - ~@as(usize, @bitCast(@as(isize, @intCast(tmp)) +% -1));
-        //             }).* = '\x00';
-        //             free(@as(?*anyopaque, @ptrCast(buffer)));
-        //         }
-        //     }
-        //     DragFinish(drop.static);
-        //     RGFW_dndCallback.?(win, win.event.droppedFiles, win.event.droppedFilesCount);
-        //     win.event.typ = @as(u32, @bitCast(RGFW_dnd));
-        //     return &win.event;
-    }
-
-    win.event.inFocus = os.GetForegroundWindow() == win.src.window;
-
-    if (checkXInput(win, &win.event) != 0) return &win.event;
-
-    const keyboardState = struct {
-        var static: [256]u8 = .{0} ** 256;
-    };
-
-    if (os.PeekMessageA(&msg, win.src.window, 0, 0, os.PM_REMOVE) != 0) {
-        switch (msg.message) {
-            os.WM_CLOSE, os.WM_QUIT => {
-                windowQuitCallback(win);
-                win.event.typ = .quit;
-            },
-            os.WM_ACTIVATE => {
-                win.event.inFocus = os.LOWORD(msg.wParam) == os.WA_INACTIVE;
-
-                if (win.event.inFocus) {
-                    win.event.typ = .focus_in;
-                    focusCallback(win, true);
-                } else {
-                    win.event.typ = .focus_out;
-                    focusCallback(win, false);
-                }
-            },
-            os.WM_PAINT => {
-                win.event.typ = .window_refresh;
-                windowRefreshCallback(win);
-            },
-            os.WM_MOUSELEAVE => {
-                win.event.typ = .mouse_leave;
-                win._winArgs.mouse_left = true;
-                mouseNotifyCallBack(win, win.event.point, false);
-            },
-            os.WM_KEYUP, os.WM_KEYDOWN => {
-                win.event.keyCode = @truncate(RGFW_apiKeyCodeToRGFW(@truncate(msg.wParam)));
-
-                RGFW_keyboard[win.event.keyCode].prev = isPressed(win, @enumFromInt(win.event.keyCode));
-
-                const keyName = struct {
-                    var static: [16]u8 = @import("std").mem.zeroes([16]u8);
-                };
-
-                _ = os.GetKeyNameTextA(@truncate(msg.lParam), @ptrCast(&keyName.static), 16);
-
-                if ((os.GetKeyState(os.VK_CAPITAL) & 0x0001 == 0 and os.GetKeyState(os.VK_SHIFT) & 0x8000 == 0) or
-                    (os.GetKeyState(os.VK_CAPITAL) & 0x0001 != 0 and os.GetKeyState(os.VK_SHIFT) & 0x8000 != 0))
-                {
-                    _ = os.CharLowerBuffA(@ptrCast(&keyName.static), 16);
-                }
-
-                RGFW_updateLockState(win, os.GetKeyState(os.VK_CAPITAL) & 0x0001 != 0, os.GetKeyState(os.VK_NUMLOCK) & 0x0001 != 0);
-
-                win.event.keyName = keyName.static;
-
-                if (isPressed(win, .shift_l)) {
-                    _ = os.ToAscii(@truncate(msg.wParam), os.MapVirtualKeyA(@truncate(msg.wParam), os.MAPVK_VK_TO_CHAR), @ptrCast(&keyboardState.static), @alignCast(@ptrCast(&win.event.keyName)), 0);
-                }
-
-                win.event.typ = if (msg.message == os.WM_KEYUP) .key_released else .key_pressed;
-                RGFW_keyboard[win.event.keyCode].current = msg.message == os.WM_KEYDOWN;
-                keyCallback(win, win.event.keyCode, std.mem.sliceTo(&win.event.keyName, 0), win.event.lockState, false);
-            },
-            os.WM_MOUSEMOVE => if (!win._winArgs.hold_mouse) {
-                win.event.typ = .mouse_pos_changed;
-                win.event.point.x = os.GET_X_LPARAM(msg.lParam);
-                win.event.point.y = os.GET_Y_LPARAM(msg.lParam);
-                mousePosCallback(win, win.event.point);
-
-                if (win._winArgs.mouse_left) {
-                    win._winArgs.mouse_left = !win._winArgs.mouse_left;
-                    win.event.typ = .mouse_enter;
-                    mouseNotifyCallBack(win, win.event.point, true);
-                }
-            },
-            os.WM_INPUT => if (win._winArgs.hold_mouse) {
-                todo("raw input", @src());
-            },
-            os.WM_LBUTTONDOWN => {
-                win.event.button = .left;
-                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
-                RGFW_mouseButtons.getPtr(win.event.button).current = true;
-                win.event.typ = .mouse_button_pressed;
-                mouseButtonCallback(win, win.event.button, win.event.scroll, true);
-            },
-            os.WM_RBUTTONDOWN => {
-                win.event.button = .right;
-                win.event.typ = .mouse_button_pressed;
-                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
-                RGFW_mouseButtons.getPtr(win.event.button).current = true;
-                mouseButtonCallback(win, win.event.button, win.event.scroll, true);
-            },
-            os.WM_MBUTTONDOWN => {
-                win.event.button = .middle;
-                win.event.typ = .mouse_button_pressed;
-                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
-                RGFW_mouseButtons.getPtr(win.event.button).current = true;
-                mouseButtonCallback(win, win.event.button, win.event.scroll, true);
-            },
-            os.WM_MOUSEWHEEL => {
-                win.event.button = if (msg.wParam > 0) .scroll_up else .scroll_down;
-                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
-                RGFW_mouseButtons.getPtr(win.event.button).current = true;
-                win.event.scroll = @as(f64, @floatFromInt(os.HIWORD(msg.wParam))) / 120.0;
-                win.event.typ = .mouse_button_pressed;
-                mouseButtonCallback(win, win.event.button, win.event.scroll, true);
-            },
-            os.WM_LBUTTONUP => {
-                win.event.button = .left;
-                win.event.typ = .mouse_button_released;
-                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
-                RGFW_mouseButtons.getPtr(win.event.button).current = false;
-                mouseButtonCallback(win, win.event.button, win.event.scroll, false);
-            },
-            os.WM_RBUTTONUP => {
-                win.event.button = .right;
-                win.event.typ = .mouse_button_released;
-                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
-                RGFW_mouseButtons.getPtr(win.event.button).current = false;
-                mouseButtonCallback(win, win.event.button, win.event.scroll, false);
-            },
-            os.WM_MBUTTONUP => {
-                win.event.button = .middle;
-                win.event.typ = .mouse_button_released;
-                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
-                RGFW_mouseButtons.getPtr(win.event.button).current = false;
-                mouseButtonCallback(win, win.event.button, win.event.scroll, false);
-            },
-            os.WM_DROPFILES => {
-                // win.event.typ = @as(u32, @bitCast(RGFW_dnd_init));
-                // drop.static = @as(HDROP, @ptrFromInt(msg.wParam));
-                // var pt: POINT = undefined;
-                // _ = &pt;
-                // _ = DragQueryPoint(drop.static, &pt);
-                // win.event.point.x = @as(i32, @bitCast(@as(c_int, @truncate(pt.x))));
-                // win.event.point.y = @as(i32, @bitCast(@as(c_int, @truncate(pt.y))));
-                // RGFW_dndInitCallback.?(win, win.event.point);
-            },
-            os.WM_GETMINMAXINFO => if (win.src.maxSize.w != 0 or win.src.maxSize.h != 0) {
-                const mmi: *os.MINMAXINFO = @ptrFromInt(@as(usize, @bitCast(msg.lParam)));
-                mmi.ptMinTrackSize.x = @bitCast(win.src.minSize.w);
-                mmi.ptMinTrackSize.y = @bitCast(win.src.minSize.h);
-                mmi.ptMaxTrackSize.x = @bitCast(win.src.maxSize.w);
-                mmi.ptMaxTrackSize.y = @bitCast(win.src.maxSize.h);
-                return null;
-            },
-            else => win.event.typ = .none,
-        }
-        _ = os.TranslateMessage(&msg);
-        _ = os.DispatchMessageA(&msg);
-    } else {
-        win.event.typ = .none;
-    }
-
-    if (os.IsWindow(win.src.window) == 0) {
-        win.event.typ = .quit;
-        windowQuitCallback(win);
-    }
-
-    return if (win.event.typ != .none) &win.event else null;
-}
-
-pub const Wait = enum(i32) {
-    no_wait = 0,
-    next = -1,
-    _,
-
-    pub inline fn millis(ms: i32) Wait {
-        return @enumFromInt(ms);
-    }
-};
-
-pub fn window_eventWait(_: *Window, wait: Wait) void {
-    _ = os.MsgWaitForMultipleObjects(0, null, 0, @intCast(@as(i32, @intFromEnum(wait)) * 1000), os.QS_ALLINPUT);
-}
-
-pub fn window_checkEvents(win: *Window, wait: Wait) void {
-    window_eventWait(win, wait);
-    while ((window_checkEvent(win) != null) and !window_shouldClose(win)) {
-        if (win.event.typ == .quit) return;
-    }
-}
-
-pub fn stopCheckEvents() void {
-    _ = os.PostMessageA(RGFW_root.?.src.window, 0, 0, 0);
-}
-
-pub fn window_close(allocator: std.mem.Allocator, win: *Window) void {
-    if (win == RGFW_root) {
-        if (RGFW_XInput_dll != null) {
-            _ = os.FreeLibrary(RGFW_XInput_dll);
-            RGFW_XInput_dll = null;
-        }
-        if (wglinstance != null) {
-            _ = os.FreeLibrary(wglinstance);
-            wglinstance = null;
-        }
-        RGFW_root = null;
-    }
-
-    _ = os.wglDeleteContext(win.src.ctx);
-    _ = os.DeleteDC(win.src.hdc);
-    _ = os.DestroyWindow(win.src.window);
-
-    for (0..max_drops) |i| {
-        allocator.free(win.event.droppedFiles[i]);
-    }
-    allocator.free(win.event.droppedFiles);
-
-    allocator.destroy(win);
-}
-
-pub fn window_move(win: *Window, v: Point) void {
-    win.r.x = v.x;
-    win.r.y = v.y;
-    _ = os.SetWindowPos(win.src.window, null, win.r.x, win.r.y, 0, 0, os.SWP_NOSIZE);
-}
-
-pub fn window_moveToMonitor(win: *Window, m: Monitor) void {
-    window_move(win, .{
-        .x = m.rect.x + win.r.x,
-        .y = m.rect.y + win.r.y,
-    });
-}
-
-pub fn window_resize(win: *Window, a: Area) void {
-    win.r.w = @intCast(a.w);
-    win.r.h = @intCast(a.h);
-    _ = os.SetWindowPos(win.src.window, null, 0, 0, win.r.w, @bitCast(@as(u32, @intCast(win.r.h)) +% win.src.hOffset), os.SWP_NOMOVE);
-}
-
-pub fn window_setMinSize(win: *Window, a: Area) void {
-    win.src.minSize = a;
-}
-
-pub fn window_setMaxSize(win: *Window, a: Area) void {
-    win.src.maxSize = a;
-}
-
-pub fn window_maximize(win: *Window) void {
-    const screen = getScreenSize();
-    window_move(win, .{});
-    window_resize(win, screen);
-}
-
-pub fn window_minimize(win: *Window) void {
-    _ = os.ShowWindow(win.src.window, os.SW_MINIMIZE);
-}
-
-pub fn window_restore(win: *Window) void {
-    _ = os.ShowWindow(win.src.window, os.SW_RESTORE);
-}
-
-pub fn window_setBorder(win: *Window, border: bool) void {
-    const style = os.GetWindowLongA(win.src.window, os.GWL_STYLE);
-
-    if (border) {
-        _ = os.SetWindowLongA(win.src.window, os.GWL_STYLE, style | os.WS_OVERLAPPEDWINDOW);
-        _ = os.SetWindowPos(win.src.window, null, 0, 0, 0, 0, os.SWP_NOZORDER | os.SWP_FRAMECHANGED | os.SWP_SHOWWINDOW | os.SWP_NOMOVE | os.SWP_NOSIZE);
-    } else {
-        _ = os.SetWindowLongA(win.src.window, os.GWL_STYLE, style & ~@as(i32, os.WS_OVERLAPPEDWINDOW));
-        _ = os.SetWindowPos(win.src.window, null, 0, 0, 0, 0, os.SWP_NOZORDER | os.SWP_FRAMECHANGED | os.SWP_SHOWWINDOW | os.SWP_NOMOVE | os.SWP_NOSIZE);
-    }
-}
-
-pub fn window_setDND(win: *Window, allow: bool) void {
-    os.DragAcceptFiles(win.src.window, @intFromBool(allow));
-}
-
-pub fn window_setName(win: *Window, name: [:0]const u8) void {
-    _ = os.SetWindowTextA(win.src.window, name);
-}
-
-pub fn window_setIcon(win: *Window, src: []const u8, a: Area, _: i32) void {
-    const handle = RGFW_loadHandleImage(win, src, a, true);
-
-    _ = os.SetClassLongPtrA(win.src.window, os.GCLP_HICON, @bitCast(@intFromPtr(handle)));
-    _ = os.DestroyIcon(handle);
-}
-
-pub fn window_setMouse(win: *Window, image: []const u8, a: Area, _: i32) void {
-    const cursor: os.HCURSOR = @ptrCast(RGFW_loadHandleImage(win, image, a, false));
-
-    _ = os.SetClassLongPtrA(win.src.window, os.GCLP_HCURSOR, @bitCast(@intFromPtr(cursor)));
-    _ = os.SetCursor(cursor);
-    _ = os.DestroyCursor(cursor);
-}
-
-pub fn window_setMouseStandard(win: *Window, mouse: MouseIcons) void {
-    const icon = os.MAKEINTRESOURCEA(RGFW_mouseIconSrc[@intFromEnum(mouse)]);
-
-    _ = os.SetClassLongPtrA(win.src.window, os.GCLP_HCURSOR, @bitCast(@intFromPtr(os.LoadCursorA(null, icon))));
-    _ = os.SetCursor(os.LoadCursorA(null, icon));
-}
-
-pub fn window_setMouseDefault(win: *Window) void {
-    window_setMouseStandard(win, .arrow);
-}
-
-/// Locks cursor to center of window
-pub fn window_mouseHold(win: *Window, _: Area) void {
-    if (win._winArgs.hold_mouse) return;
-
-    win._winArgs.hide_mouse = true;
-    captureCursor(win, win.r);
-    window_moveMouse(win, .{ .x = win.r.x + @divTrunc(win.r.w, 2), .y = win.r.y + @divTrunc(win.r.h, 2) });
-}
-
-pub fn window_mouseUnhold(win: *Window) void {
-    if (win._winArgs.hold_mouse) {
-        win._winArgs.hold_mouse = false;
-        releaseCursor(win);
-    }
-}
-
-pub fn window_hide(win: *Window) void {
-    _ = os.ShowWindow(win.src.window, os.SW_HIDE);
-}
-
-pub fn window_show(win: *Window) void {
-    _ = os.ShowWindow(win.src.window, os.SW_RESTORE);
-}
-
-pub fn window_setShouldClose(win: *Window) void {
-    win.event.typ = .quit;
-    windowQuitCallback(win);
-}
-
-pub fn getGlobalMousePoint() Point {
-    var p: os.POINT = undefined;
-    _ = os.GetCursorPos(&p);
-    return .{ .x = p.x, .y = p.y };
-}
-
-pub fn window_getMousePoint(win: *Window) Point {
-    var p: os.POINT = undefined;
-    _ = os.GetCursorPos(&p);
-    _ = os.ScreenToClient(win.src.window orelse unreachable, &p);
-
-    return .{ .x = p.x, .y = p.y };
-}
-
-pub fn window_showMouse(win: *Window, show: bool) void {
-    if (show) {
-        window_setMouseDefault(win);
-    } else {
-        window_setMouse(win, &.{ 0, 0, 0, 0 }, .{ .w = 1, .h = 1 }, 4);
-    }
-}
-
-pub fn window_moveMouse(_: *Window, p: Point) void {
-    _ = os.SetCursorPos(p.x, p.y);
-}
-
-pub fn window_shouldClose(win: *Window) bool {
-    return win.event.typ == .quit or isPressed(win, .escape);
-}
-
-pub fn window_isFullscreen(win: *Window) bool {
-    var placement = os.WINDOWPLACEMENT{};
-    _ = os.GetWindowPlacement(win.src.window, &placement);
-    return placement.showCmd == os.SW_SHOWMAXIMIZED;
-}
-
-pub fn window_isHidden(win: *Window) bool {
-    return os.IsWindowVisible(win.src.window) == 0 and !window_isMinimized(win);
-}
-
-pub fn window_isMinimized(win: *Window) bool {
-    var placement = os.WINDOWPLACEMENT{};
-    _ = os.GetWindowPlacement(win.src.window, &placement);
-    return placement.showCmd == os.SW_SHOWMINIMIZED;
-}
-
-pub fn window_isMaximized(win: *Window) bool {
-    var placement = os.WINDOWPLACEMENT{};
-    _ = os.GetWindowPlacement(win.src.window, &placement);
-    return placement.showCmd == os.SW_SHOWMAXIMIZED;
-}
-
-pub fn window_scaleToMonitor(win: *Window) void {
-    const monitor = window_getMonitor(win);
-    window_resize(win, .{
-        .w = @intFromFloat(monitor.scaleX * @as(f32, @floatFromInt(win.r.w))),
-        .h = @intFromFloat(monitor.scaleX * @as(f32, @floatFromInt(win.r.h))),
-    });
-}
-
-pub fn window_getMonitor(win: *Window) Monitor {
-    const src = os.MonitorFromWindow(win.src.window, os.MONITOR_DEFAULTTOPRIMARY);
-    return win32CreateMonitor(src);
-}
-
-/// returns true if the key should be shifted
-pub fn shouldShift(keycode: u32, lockState: u8) bool {
-    const help = struct {
-        inline fn xor(x: bool, y: bool) bool {
-            return (x and !y) or (y and !x);
-        }
-    };
-
-    const caps4caps = (lockState & RGFW_CAPSLOCK != 0) and ((keycode >= @intFromEnum(Key.a)) and (keycode <= @intFromEnum(Key.z)));
-    const should_shift = help.xor((RGFW_keyboard[@intFromEnum(Key.shift_l)].current or RGFW_keyboard[@intFromEnum(Key.shift_r)].current), caps4caps);
-
-    return should_shift;
-}
-
-pub fn keyCodeToChar(keycode: u32, shift: bool) u8 {
-    const map = [99]u8{
-        0,    0,    0,    0,    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        '`',  '0',  '1',  '2',  '3', '4', '5', '6', '7', '8', '9', '-', '=', 0,
-        '\t', 0,    0,    0,    0,   0,   0,   0,   0,   0,   ' ', 'a', 'b', 'c',
-        'd',  'e',  'f',  'g',  'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
-        'r',  's',  't',  'u',  'v', 'w', 'x', 'y', 'z', '.', ',', '/', '[', ']',
-        ';',  '\n', '\'', '\\', 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,    '/',  '*',  '-',  '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-        '\n',
-    };
-
-    const mapCaps = [99]u8{
-        0,   0,    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        '~', ')',  '!', '@', '#', '$', '%', '^', '&', '*', '(', '_', '+', 0,
-        '0', 0,    0,   0,   0,   0,   0,   0,   0,   0,   ' ', 'A', 'B', 'C',
-        'D', 'E',  'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q',
-        'R', 'S',  'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '>', '<', '?', '{', '}',
-        ':', '\n', '"', '|', 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,   '?',  '*', '-', 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-        0,
-    };
-
-    return if (shift) mapCaps[keycode] else map[keycode];
-}
-
-pub fn keyCodeToCharAuto(keycode: u32, lockState: u8) u8 {
-    return keyCodeToChar(keycode, shouldShift(keycode, lockState));
-}
-
-pub fn isPressed(win: *Window, key: Key) bool {
-    return RGFW_keyboard[@intFromEnum(key)].current and win.event.inFocus;
-}
-
-pub fn wasPressed(win: *Window, key: Key) bool {
-    return RGFW_keyboard[@intFromEnum(key)].prev and win.event.inFocus;
-}
-
-pub fn isHeld(win: *Window, key: Key) bool {
-    return isPressed(win, key) and wasPressed(win, key);
-}
-
-pub fn isReleased(win: *Window, key: Key) bool {
-    return !isPressed(win, key) and wasPressed(win, key);
-}
-
-pub fn isClicked(win: *Window, key: Key) bool {
-    return wasPressed(win, key) and !isPressed(win, key);
-}
-
-pub fn isMousePressed(win: *Window, button: MouseButton) bool {
-    return RGFW_mouseButtons.get(button).current and win.event.inFocus;
-}
-
-pub fn wasMousePressed(win: *Window, button: MouseButton) bool {
-    return RGFW_mouseButtons.get(button).prev and win.event.inFocus;
-}
-
-pub fn isMouseHeld(win: *Window, button: MouseButton) bool {
-    return (isMousePressed(win, button) and wasMousePressed(win, button));
-}
-
-pub fn isMouseReleased(win: *Window, button: MouseButton) bool {
-    return (!isMousePressed(win, button) and wasMousePressed(win, button));
-}
-
-pub const WindowMoveFn = *const fn (*Window, Rect) void;
-pub const WindowResizeFn = *const fn (*Window, Rect) void;
-pub const WindowQuitFn = *const fn (*Window) void;
-pub const FocusFn = *const fn (*Window, bool) void;
-pub const MouseNotifyFn = *const fn (*Window, Point, bool) void;
-pub const MousePosFn = *const fn (*Window, Point) void;
-pub const DndInitFn = *const fn (*Window, Point) void;
-pub const WindowRefreshFn = *const fn (*Window) void;
-pub const KeyFn = *const fn (*Window, u32, []u8, u8, bool) void;
-pub const MouseButtonFn = *const fn (*Window, MouseButton, f64, bool) void;
-pub const JoyButtonFn = *const fn (*Window, u16, u8, bool) void;
-pub const JoyAxisFn = *const fn (*Window, u16, []Point, u8) void;
-pub const DndFn = *const fn (*Window, [][]u8, u32) void;
-
-pub fn setWindowMoveCallback(func: WindowMoveFn) ?WindowMoveFn {
-    const prev = if (windowMoveCallback == stubs.windowMove) null else windowMoveCallback;
-    windowMoveCallback = func;
-    return prev;
-}
-
-pub fn setWindowResizeCallback(func: WindowResizeFn) ?WindowResizeFn {
-    const prev = if (windowResizeCallback == stubs.windowResize) null else windowResizeCallback;
-    windowResizeCallback = func;
-    return prev;
-}
-
-pub fn setWindowQuitCallback(func: WindowQuitFn) ?WindowQuitFn {
-    const prev = if (windowQuitCallback == stubs.windowQuit) null else windowQuitCallback;
-    windowQuitCallback = func;
-    return prev;
-}
-
-pub fn setMousePosCallback(func: MousePosFn) ?MousePosFn {
-    const prev = if (mousePosCallback == stubs.mousePos) null else mousePosCallback;
-    mousePosCallback = func;
-    return prev;
-}
-
-pub fn setWindowRefreshCallback(func: WindowRefreshFn) ?WindowRefreshFn {
-    const prev = if (windowRefreshCallback == stubs.windowRefresh) null else windowRefreshCallback;
-    windowRefreshCallback = func;
-    return prev;
-}
-
-pub fn setFocusCallback(func: FocusFn) ?FocusFn {
-    const prev = if (focusCallback == stubs.focus) null else focusCallback;
-    focusCallback = func;
-    return prev;
-}
-
-pub fn setMouseNotifyCallBack(func: MouseNotifyFn) ?MouseNotifyFn {
-    const prev = if (mouseNotifyCallBack == stubs.mouseNotify) null else mouseNotifyCallBack;
-    mouseNotifyCallBack = func;
-    return prev;
-}
-
-pub fn setDndCallback(func: DndFn) ?DndFn {
-    const prev = if (dndCallback == stubs.dnd) null else dndCallback;
-    dndCallback = func;
-    return prev;
-}
-
-pub fn setDndInitCallback(func: DndInitFn) ?DndInitFn {
-    const prev = if (dndInitCallback == stubs.dndInit) null else dndInitCallback;
-    dndInitCallback = func;
-    return prev;
-}
-
-pub fn setKeyCallback(func: KeyFn) ?KeyFn {
-    const prev = if (keyCallback == stubs.key) null else keyCallback;
-    keyCallback = func;
-    return prev;
-}
-
-pub fn setMouseButtonCallback(func: MouseButtonFn) ?MouseButtonFn {
-    const prev = if (mouseButtonCallback == stubs.mouseButton) null else mouseButtonCallback;
-    mouseButtonCallback = func;
-    return prev;
-}
-
-pub fn setJoyButtonCallback(func: JoyButtonFn) ?JoyButtonFn {
-    const prev = if (joyButtonCallback == stubs.joyButton) null else joyButtonCallback;
-    joyButtonCallback = func;
-    return prev;
-}
-
-pub fn setJoyAxisCallback(func: JoyAxisFn) ?JoyAxisFn {
-    const prev = if (joyAxisCallback == stubs.joyAxis) null else joyAxisCallback;
-    joyAxisCallback = func;
-    return prev;
-}
-
-pub fn registerJoystick(win: *Window, _: i32) u16 {
-    return registerJoystickF(win, "");
-}
-
-pub fn registerJoystickF(_: *Window, _: [:0]const u8) u16 {
-    return RGFW_joystickCount - 1;
-}
-
-pub fn isPressedJS(_: *Window, controller: u16, button: JoystickButton) bool {
-    return RGFW_jsPressed[controller].get(button);
-}
-
-pub fn makeCurrent(win: *Window) void {
-    makeCurrent_OpenGL(win);
-}
-
-pub fn window_checkFPS(win: *Window, fpsCap: u32) u32 {
-    var deltaTime = getTimeNS() - win.event.frameTime;
-
-    var output_fps: u32 = 0;
-    const fps: u64 = @intFromFloat(@round(@as(f64, 1e9) / @as(f64, @floatFromInt(deltaTime))));
-    output_fps = @truncate(fps);
-
-    if (fpsCap != 0 and fps > fpsCap) {
-        const frameTimeNS: u64 = @intFromFloat(1e+9 / @as(f64, @floatFromInt(fpsCap)));
-        const sleepTimeMS: u64 = (frameTimeNS - deltaTime) / 1_000_000;
-
-        if (sleepTimeMS > 0) {
-            sleep(sleepTimeMS);
-            win.event.frameTime = 0;
-        }
-    }
-
-    win.event.frameTime = getTimeNS();
-
-    if (fpsCap == 0) return output_fps;
-
-    deltaTime = getTimeNS() - win.event.frameTime2;
-
-    output_fps = @intFromFloat(@round(@as(f64, 1e+9) / @as(f64, @floatFromInt(deltaTime))));
-    win.event.frameTime2 = getTimeNS();
-
-    return output_fps;
-}
-
-pub fn window_swapBuffers(win: *Window) void {
-    if (!win._winArgs.no_cpu_render) {}
-
-    if (!win._winArgs.no_gpu_render) {
-        _ = os.SwapBuffers(win.src.hdc);
-    }
-}
-
-pub fn window_swapInterval(_: *Window, interval: i32) void {
-    const PFNWGLSWAPINTERVALEXTPROC = ?*const fn (i32) callconv(.C) os.BOOL;
-
-    const wglSwapIntervalEXT = struct {
-        var static: PFNWGLSWAPINTERVALEXTPROC = null;
-    };
-
-    const loadSwapFunc = struct {
-        var static: ?*anyopaque = @as(?*anyopaque, @ptrFromInt(@as(c_int, 1)));
-    };
-
-    if (loadSwapFunc.static == null) {
-        std.debug.print("wglSwapIntervalEXT not supported\n", .{});
-        return;
-    }
-
-    if (wglSwapIntervalEXT.static == null) {
-        loadSwapFunc.static = @ptrCast(os.wglGetProcAddress("wglSwapIntervalEXT"));
-        wglSwapIntervalEXT.static = @ptrCast(@alignCast(loadSwapFunc.static));
-    }
-
-    if (wglSwapIntervalEXT.static.?(interval) == 0) {
-        std.debug.print("Failed to set swap interval\n", .{});
-    }
-}
-
-pub fn getProcAddress(procname: [*c]const u8) ?*anyopaque {
-    const proc: ?*anyopaque = os.wglGetProcAddress(procname);
-    if (proc != null) return proc;
-
-    return os.GetProcAddress(wglinstance, procname);
-}
-
-fn makeCurrent_OpenGL(win: *Window) void {
-    _ = os.wglMakeCurrent(win.src.hdc, win.src.ctx);
-    gl.makeProcTableCurrent(&gl_procs);
-}
-
-pub fn getTime() u64 {
-    const frequency = RGFW_win32_initTimer();
-
-    var counter: os.LARGE_INTEGER = undefined;
-    _ = os.QueryPerformanceCounter(&counter);
-    return @intFromFloat(@as(f64, @floatFromInt(counter.QuadPart)) / @as(f64, @floatFromInt(frequency.QuadPart)));
-}
-
-pub fn getTimeNS() u64 {
-    const frequency = RGFW_win32_initTimer();
-
-    var counter: os.LARGE_INTEGER = undefined;
-    _ = os.QueryPerformanceCounter(&counter);
-
-    return @as(u64, @intFromFloat((@as(f64, @floatFromInt(counter.QuadPart)) * 1e9) / @as(f64, @floatFromInt(frequency.QuadPart))));
-}
-
-pub fn sleep(ms: u64) void {
-    os.Sleep(@truncate(ms));
-}
+const RGFW_CAPSLOCK = 1;
+const RGFW_NUMLOCK = 2;
 
 pub const Key = enum(u8) {
     null = 0,
@@ -1258,6 +315,1073 @@ const KeyState = packed struct { current: bool = false, prev: bool = false };
 
 var RGFW_keyboard: [100]KeyState = .{.{}} ** 100;
 
+pub var RGFW_monitors: [6]Monitor = @import("std").mem.zeroes([6]Monitor);
+
+pub const Point = struct {
+    x: i32 = 0,
+    y: i32 = 0,
+};
+pub const Rect = struct {
+    x: i32 = 0,
+    y: i32 = 0,
+    w: i32 = 0,
+    h: i32 = 0,
+};
+pub const Area = struct {
+    w: u32 = 0,
+    h: u32 = 0,
+};
+
+pub const Monitor = struct {
+    name: [128]u8,
+    rect: Rect,
+    scaleX: f32,
+    scaleY: f32,
+    physW: f32,
+    physH: f32,
+};
+
+pub fn getMonitors() []const Monitor {
+    var info = MonitorInfo{ .iIndex = 0, .hMonitor = undefined };
+
+    while (os.EnumDisplayMonitors(null, null, platform.GetMonitorHandle, @bitCast(@intFromPtr(&info))) != 0) {}
+
+    return &RGFW_monitors;
+}
+
+pub fn getPrimaryMonitor() Monitor {
+    return platform.win32CreateMonitor(os.MonitorFromPoint(.{}, os.MONITOR_DEFAULTTOPRIMARY));
+}
+
+// TODO turn into union
+pub const Event = struct {
+    keyName: [16]u8,
+    droppedFiles: [][]u8,
+    droppedFilesCount: u32,
+    typ: EventType,
+    point: Point,
+    keyCode: u8,
+    repeat: bool,
+    inFocus: bool,
+    lockState: u8,
+    button: MouseButton,
+    joy_button: JoystickButton,
+    scroll: f64,
+    joystick: u16,
+    axisesCount: u8,
+    axis: [2]Point,
+    frameTime: u64,
+    frameTime2: u64,
+};
+
+pub const WindowSrc = struct {
+    window: ?os.HWND,
+    hdc: os.HDC,
+    hOffset: u32,
+    ctx: os.HGLRC,
+    maxSize: Area,
+    minSize: Area,
+};
+
+pub const Wait = enum(i32) {
+    no_wait = 0,
+    next = -1,
+    _,
+
+    pub inline fn millis(ms: i32) Wait {
+        return @enumFromInt(ms);
+    }
+};
+
+pub fn setClassName(name: [:0]const u8) void {
+    RGFW_className = name;
+}
+
+fn todo(msg: []const u8, loc: std.builtin.SourceLocation) void {
+    std.debug.print("TODO: {s} '{s}' ({s}:{})\n", .{ msg, loc.fn_name, loc.file, loc.line });
+}
+
+pub const Window = struct {
+    src: WindowSrc,
+    userPtr: ?*anyopaque,
+    event: Event,
+    r: Rect,
+    _lastMousePoint: Point,
+    _winArgs: WindowOptions,
+
+    pub fn window_checkEvent(win: *Window) ?*Event {
+        if (win.event.typ == .quit) return null;
+
+        var msg: os.MSG = undefined;
+
+        if (RGFW_eventWindow.src.window == win.src.window) {
+            if (RGFW_eventWindow.r.x != -1) {
+                win.r.x = RGFW_eventWindow.r.x;
+                win.r.y = RGFW_eventWindow.r.y;
+                win.event.typ = .window_moved;
+                callbacks.windowMoveCallback(win, win.r);
+            }
+            if (RGFW_eventWindow.r.w != -1) {
+                win.r.w = RGFW_eventWindow.r.w;
+                win.r.h = RGFW_eventWindow.r.h;
+                win.event.typ = .window_resized;
+                callbacks.windowResizeCallback(win, win.r);
+            }
+            RGFW_eventWindow.src.window = null;
+            RGFW_eventWindow.r = .{ .x = -1, .y = -1, .w = -1, .h = -1 };
+            return &win.event;
+        }
+
+        // const drop = struct {
+        //     var static: HDROP = @import("std").mem.zeroes(HDROP);
+        // };
+        // _ = &drop;
+        if (win.event.typ == .dnd_init) {
+            todo("dnd init", @src());
+            //     if (win.event.droppedFilesCount != 0) {
+            //         var i: u32 = undefined;
+            //         _ = &i;
+            //         {
+            //             i = 0;
+            //             while (i < win.event.droppedFilesCount) : (i +%= 1) {
+            //                 win.event.droppedFiles[i][@as(c_uint, @intCast(@as(c_int, 0)))] = '\x00';
+            //             }
+            //         }
+            //     }
+            //     win.event.droppedFilesCount = 0;
+            //     win.event.droppedFilesCount = DragQueryFileW(drop.static, @as(c_uint, 4294967295), null, 0);
+            //     var i: u32 = undefined;
+            //     _ = &i;
+            //     {
+            //         i = 0;
+            //         while (i < win.event.droppedFilesCount) : (i +%= 1) {
+            //             const length: UINT = DragQueryFileW(drop.static, i, null, 0);
+            //             _ = &length;
+            //             var buffer: [*c]WCHAR = @as([*c]WCHAR, @ptrCast(@alignCast(calloc(@as(usize, @bitCast(@as(c_ulonglong, length))) +% @as(usize, @bitCast(@as(c_longlong, @as(c_int, 1)))), @sizeOf(WCHAR)))));
+            //             _ = &buffer;
+            //             _ = DragQueryFileW(drop.static, i, buffer, length +% 1);
+            //             _ = strncpy(win.event.droppedFiles[i], createUTF8FromWideStringWin32(buffer), @as(c_ulonglong, @bitCast(@as(c_longlong, @as(c_int, 260)))));
+            //             (blk: {
+            //                 const tmp = @as(c_int, 260) - @as(c_int, 1);
+            //                 if (tmp >= 0) break :blk win.event.droppedFiles[i] + @as(usize, @intCast(tmp)) else break :blk win.event.droppedFiles[i] - ~@as(usize, @bitCast(@as(isize, @intCast(tmp)) +% -1));
+            //             }).* = '\x00';
+            //             free(@as(?*anyopaque, @ptrCast(buffer)));
+            //         }
+            //     }
+            //     DragFinish(drop.static);
+            //     RGFW_dndCallback.?(win, win.event.droppedFiles, win.event.droppedFilesCount);
+            //     win.event.typ = @as(u32, @bitCast(RGFW_dnd));
+            //     return &win.event;
+        }
+
+        win.event.inFocus = os.GetForegroundWindow() == win.src.window;
+
+        if (platform.checkXInput(win, &win.event) != 0) return &win.event;
+
+        const keyboardState = struct {
+            var static: [256]u8 = .{0} ** 256;
+        };
+
+        if (os.PeekMessageA(&msg, win.src.window, 0, 0, os.PM_REMOVE) != 0) {
+            switch (msg.message) {
+                os.WM_CLOSE, os.WM_QUIT => {
+                    callbacks.windowQuitCallback(win);
+                    win.event.typ = .quit;
+                },
+                os.WM_ACTIVATE => {
+                    win.event.inFocus = os.LOWORD(msg.wParam) == os.WA_INACTIVE;
+
+                    if (win.event.inFocus) {
+                        win.event.typ = .focus_in;
+                        callbacks.focusCallback(win, true);
+                    } else {
+                        win.event.typ = .focus_out;
+                        callbacks.focusCallback(win, false);
+                    }
+                },
+                os.WM_PAINT => {
+                    win.event.typ = .window_refresh;
+                    callbacks.windowRefreshCallback(win);
+                },
+                os.WM_MOUSELEAVE => {
+                    win.event.typ = .mouse_leave;
+                    win._winArgs.mouse_left = true;
+                    callbacks.mouseNotifyCallBack(win, win.event.point, false);
+                },
+                os.WM_KEYUP, os.WM_KEYDOWN => {
+                    win.event.keyCode = @truncate(RGFW_apiKeyCodeToRGFW(@truncate(msg.wParam)));
+
+                    RGFW_keyboard[win.event.keyCode].prev = isPressed(win, @enumFromInt(win.event.keyCode));
+
+                    const keyName = struct {
+                        var static: [16]u8 = @import("std").mem.zeroes([16]u8);
+                    };
+
+                    _ = os.GetKeyNameTextA(@truncate(msg.lParam), @ptrCast(&keyName.static), 16);
+
+                    if ((os.GetKeyState(os.VK_CAPITAL) & 0x0001 == 0 and os.GetKeyState(os.VK_SHIFT) & 0x8000 == 0) or
+                        (os.GetKeyState(os.VK_CAPITAL) & 0x0001 != 0 and os.GetKeyState(os.VK_SHIFT) & 0x8000 != 0))
+                    {
+                        _ = os.CharLowerBuffA(@ptrCast(&keyName.static), 16);
+                    }
+
+                    RGFW_updateLockState(win, os.GetKeyState(os.VK_CAPITAL) & 0x0001 != 0, os.GetKeyState(os.VK_NUMLOCK) & 0x0001 != 0);
+
+                    win.event.keyName = keyName.static;
+
+                    if (isPressed(win, .shift_l)) {
+                        _ = os.ToAscii(@truncate(msg.wParam), os.MapVirtualKeyA(@truncate(msg.wParam), os.MAPVK_VK_TO_CHAR), @ptrCast(&keyboardState.static), @alignCast(@ptrCast(&win.event.keyName)), 0);
+                    }
+
+                    win.event.typ = if (msg.message == os.WM_KEYUP) .key_released else .key_pressed;
+                    RGFW_keyboard[win.event.keyCode].current = msg.message == os.WM_KEYDOWN;
+                    callbacks.keyCallback(win, win.event.keyCode, std.mem.sliceTo(&win.event.keyName, 0), win.event.lockState, false);
+                },
+                os.WM_MOUSEMOVE => if (!win._winArgs.hold_mouse) {
+                    win.event.typ = .mouse_pos_changed;
+                    win.event.point.x = os.GET_X_LPARAM(msg.lParam);
+                    win.event.point.y = os.GET_Y_LPARAM(msg.lParam);
+                    callbacks.mousePosCallback(win, win.event.point);
+
+                    if (win._winArgs.mouse_left) {
+                        win._winArgs.mouse_left = !win._winArgs.mouse_left;
+                        win.event.typ = .mouse_enter;
+                        callbacks.mouseNotifyCallBack(win, win.event.point, true);
+                    }
+                },
+                os.WM_INPUT => if (win._winArgs.hold_mouse) {
+                    todo("raw input", @src());
+                },
+                os.WM_LBUTTONDOWN => {
+                    win.event.button = .left;
+                    RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                    RGFW_mouseButtons.getPtr(win.event.button).current = true;
+                    win.event.typ = .mouse_button_pressed;
+                    callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                },
+                os.WM_RBUTTONDOWN => {
+                    win.event.button = .right;
+                    win.event.typ = .mouse_button_pressed;
+                    RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                    RGFW_mouseButtons.getPtr(win.event.button).current = true;
+                    callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                },
+                os.WM_MBUTTONDOWN => {
+                    win.event.button = .middle;
+                    win.event.typ = .mouse_button_pressed;
+                    RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                    RGFW_mouseButtons.getPtr(win.event.button).current = true;
+                    callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                },
+                os.WM_MOUSEWHEEL => {
+                    win.event.button = if (msg.wParam > 0) .scroll_up else .scroll_down;
+                    RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                    RGFW_mouseButtons.getPtr(win.event.button).current = true;
+                    win.event.scroll = @as(f64, @floatFromInt(os.HIWORD(msg.wParam))) / 120.0;
+                    win.event.typ = .mouse_button_pressed;
+                    callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                },
+                os.WM_LBUTTONUP => {
+                    win.event.button = .left;
+                    win.event.typ = .mouse_button_released;
+                    RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                    RGFW_mouseButtons.getPtr(win.event.button).current = false;
+                    callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, false);
+                },
+                os.WM_RBUTTONUP => {
+                    win.event.button = .right;
+                    win.event.typ = .mouse_button_released;
+                    RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                    RGFW_mouseButtons.getPtr(win.event.button).current = false;
+                    callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, false);
+                },
+                os.WM_MBUTTONUP => {
+                    win.event.button = .middle;
+                    win.event.typ = .mouse_button_released;
+                    RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                    RGFW_mouseButtons.getPtr(win.event.button).current = false;
+                    callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, false);
+                },
+                os.WM_DROPFILES => {
+                    // win.event.typ = @as(u32, @bitCast(RGFW_dnd_init));
+                    // drop.static = @as(HDROP, @ptrFromInt(msg.wParam));
+                    // var pt: POINT = undefined;
+                    // _ = &pt;
+                    // _ = DragQueryPoint(drop.static, &pt);
+                    // win.event.point.x = @as(i32, @bitCast(@as(c_int, @truncate(pt.x))));
+                    // win.event.point.y = @as(i32, @bitCast(@as(c_int, @truncate(pt.y))));
+                    // RGFW_dndInitCallback.?(win, win.event.point);
+                },
+                os.WM_GETMINMAXINFO => if (win.src.maxSize.w != 0 or win.src.maxSize.h != 0) {
+                    const mmi: *os.MINMAXINFO = @ptrFromInt(@as(usize, @bitCast(msg.lParam)));
+                    mmi.ptMinTrackSize.x = @bitCast(win.src.minSize.w);
+                    mmi.ptMinTrackSize.y = @bitCast(win.src.minSize.h);
+                    mmi.ptMaxTrackSize.x = @bitCast(win.src.maxSize.w);
+                    mmi.ptMaxTrackSize.y = @bitCast(win.src.maxSize.h);
+                    return null;
+                },
+                else => win.event.typ = .none,
+            }
+            _ = os.TranslateMessage(&msg);
+            _ = os.DispatchMessageA(&msg);
+        } else {
+            win.event.typ = .none;
+        }
+
+        if (os.IsWindow(win.src.window) == 0) {
+            win.event.typ = .quit;
+            callbacks.windowQuitCallback(win);
+        }
+
+        return if (win.event.typ != .none) &win.event else null;
+    }
+
+    pub fn window_eventWait(_: *Window, wait: Wait) void {
+        _ = os.MsgWaitForMultipleObjects(0, null, 0, @intCast(@as(i32, @intFromEnum(wait)) * 1000), os.QS_ALLINPUT);
+    }
+
+    pub fn window_checkEvents(win: *Window, wait: Wait) void {
+        window_eventWait(win, wait);
+        while ((window_checkEvent(win) != null) and !window_shouldClose(win)) {
+            if (win.event.typ == .quit) return;
+        }
+    }
+
+    pub fn window_close(win: *Window, allocator: std.mem.Allocator) void {
+        if (win == RGFW_root) {
+            if (platform.RGFW_XInput_dll != null) {
+                _ = os.FreeLibrary(platform.RGFW_XInput_dll);
+                platform.RGFW_XInput_dll = null;
+            }
+            if (platform.wglinstance != null) {
+                _ = os.FreeLibrary(platform.wglinstance);
+                platform.wglinstance = null;
+            }
+            RGFW_root = null;
+        }
+
+        _ = os.wglDeleteContext(win.src.ctx);
+        _ = os.DeleteDC(win.src.hdc);
+        _ = os.DestroyWindow(win.src.window);
+
+        for (0..max_drops) |i| {
+            allocator.free(win.event.droppedFiles[i]);
+        }
+        allocator.free(win.event.droppedFiles);
+
+        allocator.destroy(win);
+    }
+
+    pub fn window_move(win: *Window, v: Point) void {
+        win.r.x = v.x;
+        win.r.y = v.y;
+        _ = os.SetWindowPos(win.src.window, null, win.r.x, win.r.y, 0, 0, os.SWP_NOSIZE);
+    }
+
+    pub fn window_moveToMonitor(win: *Window, m: Monitor) void {
+        window_move(win, .{
+            .x = m.rect.x + win.r.x,
+            .y = m.rect.y + win.r.y,
+        });
+    }
+
+    pub fn window_resize(win: *Window, a: Area) void {
+        win.r.w = @intCast(a.w);
+        win.r.h = @intCast(a.h);
+        _ = os.SetWindowPos(win.src.window, null, 0, 0, win.r.w, @bitCast(@as(u32, @intCast(win.r.h)) +% win.src.hOffset), os.SWP_NOMOVE);
+    }
+
+    pub fn window_setMinSize(win: *Window, a: Area) void {
+        win.src.minSize = a;
+    }
+
+    pub fn window_setMaxSize(win: *Window, a: Area) void {
+        win.src.maxSize = a;
+    }
+
+    pub fn window_maximize(win: *Window) void {
+        const screen = getScreenSize();
+        window_move(win, .{});
+        window_resize(win, screen);
+    }
+
+    pub fn window_minimize(win: *Window) void {
+        _ = os.ShowWindow(win.src.window, os.SW_MINIMIZE);
+    }
+
+    pub fn window_restore(win: *Window) void {
+        _ = os.ShowWindow(win.src.window, os.SW_RESTORE);
+    }
+
+    pub fn window_setBorder(win: *Window, border: bool) void {
+        const style = os.GetWindowLongA(win.src.window, os.GWL_STYLE);
+
+        if (border) {
+            _ = os.SetWindowLongA(win.src.window, os.GWL_STYLE, style | os.WS_OVERLAPPEDWINDOW);
+            _ = os.SetWindowPos(win.src.window, null, 0, 0, 0, 0, os.SWP_NOZORDER | os.SWP_FRAMECHANGED | os.SWP_SHOWWINDOW | os.SWP_NOMOVE | os.SWP_NOSIZE);
+        } else {
+            _ = os.SetWindowLongA(win.src.window, os.GWL_STYLE, style & ~@as(i32, os.WS_OVERLAPPEDWINDOW));
+            _ = os.SetWindowPos(win.src.window, null, 0, 0, 0, 0, os.SWP_NOZORDER | os.SWP_FRAMECHANGED | os.SWP_SHOWWINDOW | os.SWP_NOMOVE | os.SWP_NOSIZE);
+        }
+    }
+
+    pub fn window_setDND(win: *Window, allow: bool) void {
+        os.DragAcceptFiles(win.src.window, @intFromBool(allow));
+    }
+
+    pub fn window_setName(win: *Window, name: [:0]const u8) void {
+        _ = os.SetWindowTextA(win.src.window, name);
+    }
+
+    pub fn window_setIcon(win: *Window, src: []const u8, a: Area, _: i32) void {
+        const handle = platform.RGFW_loadHandleImage(win, src, a, true);
+
+        _ = os.SetClassLongPtrA(win.src.window, os.GCLP_HICON, @bitCast(@intFromPtr(handle)));
+        _ = os.DestroyIcon(handle);
+    }
+
+    pub fn window_setMouse(win: *Window, image: []const u8, a: Area, _: i32) void {
+        const cursor: os.HCURSOR = @ptrCast(platform.RGFW_loadHandleImage(win, image, a, false));
+
+        _ = os.SetClassLongPtrA(win.src.window, os.GCLP_HCURSOR, @bitCast(@intFromPtr(cursor)));
+        _ = os.SetCursor(cursor);
+        _ = os.DestroyCursor(cursor);
+    }
+
+    pub fn window_setMouseStandard(win: *Window, mouse: MouseIcons) void {
+        const icon = os.MAKEINTRESOURCEA(RGFW_mouseIconSrc[@intFromEnum(mouse)]);
+
+        _ = os.SetClassLongPtrA(win.src.window, os.GCLP_HCURSOR, @bitCast(@intFromPtr(os.LoadCursorA(null, icon))));
+        _ = os.SetCursor(os.LoadCursorA(null, icon));
+    }
+
+    pub fn window_setMouseDefault(win: *Window) void {
+        window_setMouseStandard(win, .arrow);
+    }
+
+    /// Locks cursor to center of window
+    pub fn window_mouseHold(win: *Window, _: Area) void {
+        if (win._winArgs.hold_mouse) return;
+
+        win._winArgs.hide_mouse = true;
+        captureCursor(win, win.r);
+        window_moveMouse(win, .{ .x = win.r.x + @divTrunc(win.r.w, 2), .y = win.r.y + @divTrunc(win.r.h, 2) });
+    }
+
+    pub fn window_mouseUnhold(win: *Window) void {
+        if (win._winArgs.hold_mouse) {
+            win._winArgs.hold_mouse = false;
+            releaseCursor(win);
+        }
+    }
+
+    pub fn window_hide(win: *Window) void {
+        _ = os.ShowWindow(win.src.window, os.SW_HIDE);
+    }
+
+    pub fn window_show(win: *Window) void {
+        _ = os.ShowWindow(win.src.window, os.SW_RESTORE);
+    }
+
+    pub fn window_setShouldClose(win: *Window) void {
+        win.event.typ = .quit;
+        callbacks.windowQuitCallback(win);
+    }
+
+    pub fn window_getMousePoint(win: *Window) Point {
+        var p: os.POINT = undefined;
+        _ = os.GetCursorPos(&p);
+        _ = os.ScreenToClient(win.src.window orelse unreachable, &p);
+
+        return .{ .x = p.x, .y = p.y };
+    }
+
+    pub fn window_showMouse(win: *Window, show: bool) void {
+        if (show) {
+            window_setMouseDefault(win);
+        } else {
+            window_setMouse(win, &.{ 0, 0, 0, 0 }, .{ .w = 1, .h = 1 }, 4);
+        }
+    }
+
+    pub fn window_moveMouse(_: *Window, p: Point) void {
+        _ = os.SetCursorPos(p.x, p.y);
+    }
+
+    pub fn window_shouldClose(win: *Window) bool {
+        return win.event.typ == .quit or isPressed(win, .escape);
+    }
+
+    pub fn window_isFullscreen(win: *Window) bool {
+        var placement = os.WINDOWPLACEMENT{};
+        _ = os.GetWindowPlacement(win.src.window, &placement);
+        return placement.showCmd == os.SW_SHOWMAXIMIZED;
+    }
+
+    pub fn window_isHidden(win: *Window) bool {
+        return os.IsWindowVisible(win.src.window) == 0 and !window_isMinimized(win);
+    }
+
+    pub fn window_isMinimized(win: *Window) bool {
+        var placement = os.WINDOWPLACEMENT{};
+        _ = os.GetWindowPlacement(win.src.window, &placement);
+        return placement.showCmd == os.SW_SHOWMINIMIZED;
+    }
+
+    pub fn window_isMaximized(win: *Window) bool {
+        var placement = os.WINDOWPLACEMENT{};
+        _ = os.GetWindowPlacement(win.src.window, &placement);
+        return placement.showCmd == os.SW_SHOWMAXIMIZED;
+    }
+
+    pub fn window_scaleToMonitor(win: *Window) void {
+        const monitor = window_getMonitor(win);
+        window_resize(win, .{
+            .w = @intFromFloat(monitor.scaleX * @as(f32, @floatFromInt(win.r.w))),
+            .h = @intFromFloat(monitor.scaleX * @as(f32, @floatFromInt(win.r.h))),
+        });
+    }
+
+    pub fn window_getMonitor(win: *Window) Monitor {
+        const src = os.MonitorFromWindow(win.src.window, os.MONITOR_DEFAULTTOPRIMARY);
+        return platform.win32CreateMonitor(src);
+    }
+
+    pub fn makeCurrent(win: *Window) void {
+        makeCurrent_OpenGL(win);
+    }
+
+    pub fn window_checkFPS(win: *Window, fpsCap: u32) u32 {
+        var deltaTime = time.getTimeNS() - win.event.frameTime;
+
+        var output_fps: u32 = 0;
+        const fps: u64 = @intFromFloat(@round(@as(f64, 1e9) / @as(f64, @floatFromInt(deltaTime))));
+        output_fps = @truncate(fps);
+
+        if (fpsCap != 0 and fps > fpsCap) {
+            const frameTimeNS: u64 = @intFromFloat(1e+9 / @as(f64, @floatFromInt(fpsCap)));
+            const sleepTimeMS: u64 = (frameTimeNS - deltaTime) / 1_000_000;
+
+            if (sleepTimeMS > 0) {
+                time.sleep(sleepTimeMS);
+                win.event.frameTime = 0;
+            }
+        }
+
+        win.event.frameTime = time.getTimeNS();
+
+        if (fpsCap == 0) return output_fps;
+
+        deltaTime = time.getTimeNS() - win.event.frameTime2;
+
+        output_fps = @intFromFloat(@round(@as(f64, 1e+9) / @as(f64, @floatFromInt(deltaTime))));
+        win.event.frameTime2 = time.getTimeNS();
+
+        return output_fps;
+    }
+
+    pub fn window_swapBuffers(win: *Window) void {
+        if (!win._winArgs.no_cpu_render) {}
+
+        if (!win._winArgs.no_gpu_render) {
+            _ = os.SwapBuffers(win.src.hdc);
+        }
+    }
+
+    pub fn window_swapInterval(_: *Window, interval: i32) void {
+        const PFNWGLSWAPINTERVALEXTPROC = ?*const fn (i32) callconv(.C) os.BOOL;
+
+        const wglSwapIntervalEXT = struct {
+            var static: PFNWGLSWAPINTERVALEXTPROC = null;
+        };
+
+        const loadSwapFunc = struct {
+            var static: ?*anyopaque = @as(?*anyopaque, @ptrFromInt(@as(c_int, 1)));
+        };
+
+        if (loadSwapFunc.static == null) {
+            std.debug.print("wglSwapIntervalEXT not supported\n", .{});
+            return;
+        }
+
+        if (wglSwapIntervalEXT.static == null) {
+            loadSwapFunc.static = @ptrCast(os.wglGetProcAddress("wglSwapIntervalEXT"));
+            wglSwapIntervalEXT.static = @ptrCast(@alignCast(loadSwapFunc.static));
+        }
+
+        if (wglSwapIntervalEXT.static.?(interval) == 0) {
+            std.debug.print("Failed to set swap interval\n", .{});
+        }
+    }
+};
+
+pub fn createWindow(allocator: std.mem.Allocator, name: [:0]const u8, rect: Rect, args: WindowOptions) !*Window {
+    if (platform.RGFW_XInput_dll == null) platform.loadXInput();
+    if (platform.wglinstance == null) platform.wglinstance = os.LoadLibraryA("opengl32.dll");
+
+    RGFW_eventWindow.r = .{ .x = -1, .y = -1, .w = -1, .h = -1 };
+    RGFW_eventWindow.src.window = null;
+
+    const win = try RGFW_window_basic_init(allocator, rect, args);
+
+    win.src.maxSize = .{ .w = 0, .h = 0 };
+    win.src.minSize = .{ .w = 0, .h = 0 };
+
+    const inh = os.GetModuleHandleA(null) orelse unreachable;
+
+    if (RGFW_className == null) RGFW_className = name;
+    const class = os.WNDCLASSEXA{
+        .lpszClassName = RGFW_className.?,
+        .hInstance = inh,
+        .hCursor = os.LoadCursorA(null, os.IDC_ARROW),
+        .lpfnWndProc = platform.WndProc,
+    };
+    _ = os.RegisterClassExA(&class);
+
+    var window_style: os.DWORD = os.WS_CLIPSIBLINGS | os.WS_CLIPCHILDREN;
+    var windowRect: os.RECT = undefined;
+    var clientRect: os.RECT = undefined;
+
+    if (!args.no_border) {
+        window_style |= os.WS_CAPTION | os.WS_SYSMENU | os.WS_BORDER | os.WS_MINIMIZEBOX;
+
+        if (!args.no_resize) {
+            window_style |= os.WS_SIZEBOX | os.WS_MAXIMIZEBOX | os.WS_THICKFRAME;
+        }
+    } else {
+        window_style |= os.WS_POPUP | os.WS_VISIBLE | os.WS_SYSMENU | os.WS_MINIMIZEBOX;
+    }
+
+    const dummyWin = os.CreateWindowExA(
+        0,
+        class.lpszClassName,
+        name,
+        window_style,
+        win.r.x,
+        win.r.y,
+        win.r.w,
+        win.r.h,
+        null,
+        null,
+        inh,
+        null,
+    ) orelse unreachable;
+
+    _ = os.GetWindowRect(dummyWin, &windowRect);
+    _ = os.GetClientRect(dummyWin, &clientRect);
+
+    win.src.hOffset = @intCast((windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top));
+    win.src.window = os.CreateWindowExA(
+        0,
+        class.lpszClassName,
+        name,
+        window_style,
+        win.r.x,
+        win.r.y,
+        win.r.w,
+        win.r.h +% @as(i32, @intCast(win.src.hOffset)),
+        null,
+        null,
+        inh,
+        null,
+    );
+
+    if (args.allow_dnd) {
+        win._winArgs.allow_dnd = true;
+        // RGFW_window_setDND(win, true);
+        todo("set dnd", @src());
+    }
+    win.src.hdc = os.GetDC(win.src.window) orelse unreachable;
+
+    if (!args.no_init_api) {
+        const dummy_dc = os.GetDC(dummyWin) orelse unreachable;
+
+        var pfd_flags: u32 = os.PFD_DRAW_TO_WINDOW | os.PFD_SUPPORT_OPENGL;
+        pfd_flags |= os.PFD_DOUBLEBUFFER;
+
+        var pfd = os.PIXELFORMATDESCRIPTOR{
+            .nVersion = 1,
+            .dwFlags = pfd_flags,
+            .cColorBits = 24,
+            .cAlphaBits = 8,
+            .cDepthBits = 32,
+            .cStencilBits = 8,
+        };
+
+        const pixel_format = os.ChoosePixelFormat(dummy_dc, &pfd);
+        _ = os.SetPixelFormat(dummy_dc, pixel_format, &pfd);
+
+        const dummy_context = os.wglCreateContext(dummy_dc);
+        _ = os.wglMakeCurrent(dummy_dc, dummy_context);
+
+        if (platform.wglChoosePixelFormatARB == null) {
+            platform.wglCreateContextAttribsARB = @ptrCast(os.wglGetProcAddress("wglCreateContextAttribsARB"));
+            platform.wglChoosePixelFormatARB = @ptrCast(os.wglGetProcAddress("wglChoosePixelFormatARB"));
+        }
+
+        _ = os.wglMakeCurrent(dummy_dc, null);
+        _ = os.wglDeleteContext(dummy_context);
+        _ = os.ReleaseDC(dummyWin, dummy_dc);
+
+        if (platform.wglCreateContextAttribsARB != null) {
+            pfd = os.PIXELFORMATDESCRIPTOR{
+                .nVersion = 1,
+                .dwFlags = pfd_flags,
+                .cColorBits = 32,
+                .cRedBits = 8,
+                .cGreenBits = 24,
+                .cGreenShift = 8,
+            };
+
+            if (args.opengl_software) {
+                pfd.dwFlags |= os.PFD_GENERIC_FORMAT | os.PFD_GENERIC_ACCELERATED;
+            }
+
+            if (platform.wglChoosePixelFormatARB != null) {
+                const pixel_format_attribs = platform.RGFW_initFormatAttribs(args.opengl_software);
+
+                var pixel_format_1: i32 = undefined;
+                var num_formats: u32 = undefined;
+                _ = platform.wglChoosePixelFormatARB.?(win.src.hdc, @ptrCast(pixel_format_attribs), null, 1, @ptrCast(&pixel_format_1), @ptrCast(&num_formats));
+                if (num_formats == 0) {
+                    std.debug.print("Failed to create a pixel format for WGL.\n", .{});
+                }
+
+                _ = os.DescribePixelFormat(win.src.hdc, pixel_format_1, @sizeOf(os.PIXELFORMATDESCRIPTOR), @ptrCast(&pfd));
+                if (os.SetPixelFormat(win.src.hdc, pixel_format_1, &pfd) == 0) {
+                    std.debug.print("Failed to set the WGL pixel format.\n", .{});
+                }
+            }
+
+            const profile_mask = switch (gl.info.profile orelse comptime unreachable) {
+                .core => platform.WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+                .compatibility => platform.WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
+                else => comptime unreachable,
+            };
+
+            const ctx_attribs = [_]i32{
+                platform.WGL_CONTEXT_PROFILE_MASK_ARB,  profile_mask,
+                platform.WGL_CONTEXT_MAJOR_VERSION_ARB, gl.info.version_major,
+                platform.WGL_CONTEXT_MINOR_VERSION_ARB, gl.info.version_minor,
+                0,
+            };
+
+            win.src.ctx = platform.wglCreateContextAttribsARB.?(win.src.hdc, null, &ctx_attribs) orelse unreachable;
+        } else {
+            std.debug.print("Failed to create an accelerated OpenGL Context\n", .{});
+
+            const pixel_format_ = os.ChoosePixelFormat(win.src.hdc, &pfd);
+            _ = os.SetPixelFormat(win.src.hdc, pixel_format_, &pfd);
+
+            win.src.ctx = os.wglCreateContext(win.src.hdc) orelse unreachable;
+        }
+
+        _ = os.wglMakeCurrent(win.src.hdc, win.src.ctx);
+    }
+
+    if (!args.no_init_api) {
+        _ = os.ReleaseDC(win.src.window, win.src.hdc);
+        win.src.hdc = os.GetDC(win.src.window) orelse unreachable;
+        _ = os.wglMakeCurrent(win.src.hdc, win.src.ctx);
+
+        std.debug.assert(gl_procs.init(getProcAddress));
+    }
+
+    _ = os.DestroyWindow(dummyWin);
+
+    if (args.scale_to_monitor) {
+        win.window_scaleToMonitor();
+    }
+
+    if (args.center) {
+        const screenR = getScreenSize();
+        win.window_move(.{ .x = @intCast((screenR.w - @as(u32, @intCast(win.r.w))) / 2), .y = @intCast((screenR.h - @as(u32, @intCast(win.r.h))) / 2) });
+    }
+
+    if (args.hide_mouse) {
+        win.window_showMouse(false);
+    }
+
+    _ = os.ShowWindow(win.src.window, os.SW_SHOWNORMAL);
+
+    if (RGFW_root == null) {
+        RGFW_root = win;
+    } else {
+        // _ = wglShareLists(RGFW_root.src.ctx, win.src.ctx);
+        unreachable;
+    }
+
+    return win;
+}
+
+pub const callbacks = struct {
+    pub const WindowMoveFn = *const fn (*Window, Rect) void;
+    pub const WindowResizeFn = *const fn (*Window, Rect) void;
+    pub const WindowQuitFn = *const fn (*Window) void;
+    pub const FocusFn = *const fn (*Window, bool) void;
+    pub const MouseNotifyFn = *const fn (*Window, Point, bool) void;
+    pub const MousePosFn = *const fn (*Window, Point) void;
+    pub const DndInitFn = *const fn (*Window, Point) void;
+    pub const WindowRefreshFn = *const fn (*Window) void;
+    pub const KeyFn = *const fn (*Window, u32, []u8, u8, bool) void;
+    pub const MouseButtonFn = *const fn (*Window, MouseButton, f64, bool) void;
+    pub const JoyButtonFn = *const fn (*Window, u16, u8, bool) void;
+    pub const JoyAxisFn = *const fn (*Window, u16, []Point, u8) void;
+    pub const DndFn = *const fn (*Window, [][]u8, u32) void;
+
+    var windowMoveCallback: WindowMoveFn = stubs.windowMove;
+    var windowResizeCallback: WindowResizeFn = stubs.windowResize;
+    var windowQuitCallback: WindowQuitFn = stubs.windowQuit;
+    var focusCallback: FocusFn = stubs.focus;
+    var mouseNotifyCallBack: MouseNotifyFn = stubs.mouseNotify;
+    var mousePosCallback: MousePosFn = stubs.mousePos;
+    var dndInitCallback: DndInitFn = stubs.dndInit;
+    var windowRefreshCallback: WindowRefreshFn = stubs.windowRefresh;
+    var keyCallback: KeyFn = stubs.key;
+    var mouseButtonCallback: MouseButtonFn = stubs.mouseButton;
+    var joyButtonCallback: JoyButtonFn = stubs.joyButton;
+    var joyAxisCallback: JoyAxisFn = stubs.joyAxis;
+    var dndCallback: DndFn = stubs.dnd;
+
+    const stubs = struct {
+        fn windowMove(_: *Window, _: Rect) void {}
+        fn windowResize(_: *Window, _: Rect) void {}
+        fn windowQuit(_: *Window) void {}
+        fn focus(_: *Window, _: bool) void {}
+        fn mouseNotify(_: *Window, _: Point, _: bool) void {}
+        fn mousePos(_: *Window, _: Point) void {}
+        fn dndInit(_: *Window, _: Point) void {}
+        fn windowRefresh(_: *Window) void {}
+        fn key(_: *Window, _: u32, _: []u8, _: u8, _: bool) void {}
+        fn mouseButton(_: *Window, _: MouseButton, _: f64, _: bool) void {}
+        fn joyButton(_: *Window, _: u16, _: u8, _: bool) void {}
+        fn joyAxis(_: *Window, _: u16, _: []Point, _: u8) void {}
+        fn dnd(_: *Window, _: [][]u8, _: u32) void {}
+    };
+
+    pub fn setWindowMoveCallback(func: WindowMoveFn) ?WindowMoveFn {
+        const prev = if (windowMoveCallback == stubs.windowMove) null else windowMoveCallback;
+        windowMoveCallback = func;
+        return prev;
+    }
+
+    pub fn setWindowResizeCallback(func: WindowResizeFn) ?WindowResizeFn {
+        const prev = if (windowResizeCallback == stubs.windowResize) null else windowResizeCallback;
+        windowResizeCallback = func;
+        return prev;
+    }
+
+    pub fn setWindowQuitCallback(func: WindowQuitFn) ?WindowQuitFn {
+        const prev = if (windowQuitCallback == stubs.windowQuit) null else windowQuitCallback;
+        windowQuitCallback = func;
+        return prev;
+    }
+
+    pub fn setMousePosCallback(func: MousePosFn) ?MousePosFn {
+        const prev = if (mousePosCallback == stubs.mousePos) null else mousePosCallback;
+        mousePosCallback = func;
+        return prev;
+    }
+
+    pub fn setWindowRefreshCallback(func: WindowRefreshFn) ?WindowRefreshFn {
+        const prev = if (windowRefreshCallback == stubs.windowRefresh) null else windowRefreshCallback;
+        windowRefreshCallback = func;
+        return prev;
+    }
+
+    pub fn setFocusCallback(func: FocusFn) ?FocusFn {
+        const prev = if (focusCallback == stubs.focus) null else focusCallback;
+        focusCallback = func;
+        return prev;
+    }
+
+    pub fn setMouseNotifyCallBack(func: MouseNotifyFn) ?MouseNotifyFn {
+        const prev = if (mouseNotifyCallBack == stubs.mouseNotify) null else mouseNotifyCallBack;
+        mouseNotifyCallBack = func;
+        return prev;
+    }
+
+    pub fn setDndCallback(func: DndFn) ?DndFn {
+        const prev = if (dndCallback == stubs.dnd) null else dndCallback;
+        dndCallback = func;
+        return prev;
+    }
+
+    pub fn setDndInitCallback(func: DndInitFn) ?DndInitFn {
+        const prev = if (dndInitCallback == stubs.dndInit) null else dndInitCallback;
+        dndInitCallback = func;
+        return prev;
+    }
+
+    pub fn setKeyCallback(func: KeyFn) ?KeyFn {
+        const prev = if (keyCallback == stubs.key) null else keyCallback;
+        keyCallback = func;
+        return prev;
+    }
+
+    pub fn setMouseButtonCallback(func: MouseButtonFn) ?MouseButtonFn {
+        const prev = if (mouseButtonCallback == stubs.mouseButton) null else mouseButtonCallback;
+        mouseButtonCallback = func;
+        return prev;
+    }
+
+    pub fn setJoyButtonCallback(func: JoyButtonFn) ?JoyButtonFn {
+        const prev = if (joyButtonCallback == stubs.joyButton) null else joyButtonCallback;
+        joyButtonCallback = func;
+        return prev;
+    }
+
+    pub fn setJoyAxisCallback(func: JoyAxisFn) ?JoyAxisFn {
+        const prev = if (joyAxisCallback == stubs.joyAxis) null else joyAxisCallback;
+        joyAxisCallback = func;
+        return prev;
+    }
+};
+
+pub fn getScreenSize() Area {
+    return .{
+        .w = @intCast(os.GetDeviceCaps(os.GetDC(null), os.HORZRES)),
+        .h = @intCast(os.GetDeviceCaps(os.GetDC(null), os.VERTRES)),
+    };
+}
+
+pub fn stopCheckEvents() void {
+    _ = os.PostMessageA(RGFW_root.?.src.window, 0, 0, 0);
+}
+
+pub fn getGlobalMousePoint() Point {
+    var p: os.POINT = undefined;
+    _ = os.GetCursorPos(&p);
+    return .{ .x = p.x, .y = p.y };
+}
+
+/// returns true if the key should be shifted
+pub fn shouldShift(keycode: u32, lockState: u8) bool {
+    const help = struct {
+        inline fn xor(x: bool, y: bool) bool {
+            return (x and !y) or (y and !x);
+        }
+    };
+
+    const caps4caps = (lockState & RGFW_CAPSLOCK != 0) and ((keycode >= @intFromEnum(Key.a)) and (keycode <= @intFromEnum(Key.z)));
+    const should_shift = help.xor((RGFW_keyboard[@intFromEnum(Key.shift_l)].current or RGFW_keyboard[@intFromEnum(Key.shift_r)].current), caps4caps);
+
+    return should_shift;
+}
+
+pub fn keyCodeToChar(keycode: u32, shift: bool) u8 {
+    const map = [99]u8{
+        0,    0,    0,    0,    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+        '`',  '0',  '1',  '2',  '3', '4', '5', '6', '7', '8', '9', '-', '=', 0,
+        '\t', 0,    0,    0,    0,   0,   0,   0,   0,   0,   ' ', 'a', 'b', 'c',
+        'd',  'e',  'f',  'g',  'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q',
+        'r',  's',  't',  'u',  'v', 'w', 'x', 'y', 'z', '.', ',', '/', '[', ']',
+        ';',  '\n', '\'', '\\', 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+        0,    '/',  '*',  '-',  '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
+        '\n',
+    };
+
+    const mapCaps = [99]u8{
+        0,   0,    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+        '~', ')',  '!', '@', '#', '$', '%', '^', '&', '*', '(', '_', '+', 0,
+        '0', 0,    0,   0,   0,   0,   0,   0,   0,   0,   ' ', 'A', 'B', 'C',
+        'D', 'E',  'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q',
+        'R', 'S',  'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '>', '<', '?', '{', '}',
+        ':', '\n', '"', '|', 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+        0,   '?',  '*', '-', 0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+        0,
+    };
+
+    return if (shift) mapCaps[keycode] else map[keycode];
+}
+
+pub fn keyCodeToCharAuto(keycode: u32, lockState: u8) u8 {
+    return keyCodeToChar(keycode, shouldShift(keycode, lockState));
+}
+
+pub fn isPressed(win: *Window, key: Key) bool {
+    return RGFW_keyboard[@intFromEnum(key)].current and win.event.inFocus;
+}
+
+pub fn wasPressed(win: *Window, key: Key) bool {
+    return RGFW_keyboard[@intFromEnum(key)].prev and win.event.inFocus;
+}
+
+pub fn isHeld(win: *Window, key: Key) bool {
+    return isPressed(win, key) and wasPressed(win, key);
+}
+
+pub fn isReleased(win: *Window, key: Key) bool {
+    return !isPressed(win, key) and wasPressed(win, key);
+}
+
+pub fn isClicked(win: *Window, key: Key) bool {
+    return wasPressed(win, key) and !isPressed(win, key);
+}
+
+pub fn isMousePressed(win: *Window, button: MouseButton) bool {
+    return RGFW_mouseButtons.get(button).current and win.event.inFocus;
+}
+
+pub fn wasMousePressed(win: *Window, button: MouseButton) bool {
+    return RGFW_mouseButtons.get(button).prev and win.event.inFocus;
+}
+
+pub fn isMouseHeld(win: *Window, button: MouseButton) bool {
+    return (isMousePressed(win, button) and wasMousePressed(win, button));
+}
+
+pub fn isMouseReleased(win: *Window, button: MouseButton) bool {
+    return (!isMousePressed(win, button) and wasMousePressed(win, button));
+}
+
+pub fn registerJoystick(win: *Window, _: i32) u16 {
+    return registerJoystickF(win, "");
+}
+
+pub fn registerJoystickF(_: *Window, _: [:0]const u8) u16 {
+    return RGFW_joystickCount - 1;
+}
+
+pub fn isPressedJS(_: *Window, controller: u16, button: JoystickButton) bool {
+    return RGFW_jsPressed[controller].get(button);
+}
+
+pub fn getProcAddress(procname: [*c]const u8) ?*anyopaque {
+    const proc: ?*anyopaque = os.wglGetProcAddress(procname);
+    if (proc != null) return proc;
+
+    return os.GetProcAddress(platform.wglinstance, procname);
+}
+
+fn makeCurrent_OpenGL(win: *Window) void {
+    _ = os.wglMakeCurrent(win.src.hdc, win.src.ctx);
+    gl.makeProcTableCurrent(&gl_procs);
+}
+
+pub const time = struct {
+    pub fn getTime() u64 {
+        const frequency = platform.RGFW_win32_initTimer();
+
+        var counter: os.LARGE_INTEGER = undefined;
+        _ = os.QueryPerformanceCounter(&counter);
+        return @intFromFloat(@as(f64, @floatFromInt(counter.QuadPart)) / @as(f64, @floatFromInt(frequency.QuadPart)));
+    }
+
+    pub fn getTimeNS() u64 {
+        const frequency = platform.RGFW_win32_initTimer();
+
+        var counter: os.LARGE_INTEGER = undefined;
+        _ = os.QueryPerformanceCounter(&counter);
+
+        return @as(u64, @intFromFloat((@as(f64, @floatFromInt(counter.QuadPart)) * 1e9) / @as(f64, @floatFromInt(frequency.QuadPart))));
+    }
+
+    pub fn sleep(ms: u64) void {
+        os.Sleep(@truncate(ms));
+    }
+};
+
 fn RGFW_apiKeyCodeToRGFW(keycode: u32) u32 {
     _ = std.meta.intToEnum(Key, keycode) catch return 0;
     return @intFromEnum(RGFW_keycodes[keycode]);
@@ -1268,43 +1392,6 @@ fn RGFW_resetKey() void {
         RGFW_keyboard[i].prev = false;
     }
 }
-
-var RGFW_jsPressed: [4]std.EnumArray(JoystickButton, bool) = .{std.EnumArray(JoystickButton, bool).initFill(false)} ** 4;
-var RGFW_joysticks: [4]i32 = std.mem.zeroes([4]i32);
-var RGFW_joystickCount: u16 = 0;
-
-const stubs = struct {
-    fn windowMove(_: *Window, _: Rect) void {}
-    fn windowResize(_: *Window, _: Rect) void {}
-    fn windowQuit(_: *Window) void {}
-    fn focus(_: *Window, _: bool) void {}
-    fn mouseNotify(_: *Window, _: Point, _: bool) void {}
-    fn mousePos(_: *Window, _: Point) void {}
-    fn dndInit(_: *Window, _: Point) void {}
-    fn windowRefresh(_: *Window) void {}
-    fn key(_: *Window, _: u32, _: []u8, _: u8, _: bool) void {}
-    fn mouseButton(_: *Window, _: MouseButton, _: f64, _: bool) void {}
-    fn joyButton(_: *Window, _: u16, _: u8, _: bool) void {}
-    fn joyAxis(_: *Window, _: u16, _: []Point, _: u8) void {}
-    fn dnd(_: *Window, _: [][]u8, _: u32) void {}
-};
-
-var windowMoveCallback: WindowMoveFn = stubs.windowMove;
-var windowResizeCallback: WindowResizeFn = stubs.windowResize;
-var windowQuitCallback: WindowQuitFn = stubs.windowQuit;
-var focusCallback: FocusFn = stubs.focus;
-var mouseNotifyCallBack: MouseNotifyFn = stubs.mouseNotify;
-var mousePosCallback: MousePosFn = stubs.mousePos;
-var dndInitCallback: DndInitFn = stubs.dndInit;
-var windowRefreshCallback: WindowRefreshFn = stubs.windowRefresh;
-var keyCallback: KeyFn = stubs.key;
-var mouseButtonCallback: MouseButtonFn = stubs.mouseButton;
-var joyButtonCallback: JoyButtonFn = stubs.joyButton;
-var joyAxisCallback: JoyAxisFn = stubs.joyAxis;
-var dndCallback: DndFn = stubs.dnd;
-
-const max_drops = 260;
-const max_path = 260;
 
 pub fn RGFW_window_basic_init(allocator: std.mem.Allocator, rect: Rect, args: WindowOptions) !*Window {
     const win = try allocator.create(Window);
@@ -1332,11 +1419,6 @@ pub fn RGFW_window_basic_init(allocator: std.mem.Allocator, rect: Rect, args: Wi
 
     return win;
 }
-
-var RGFW_root: ?*Window = null;
-var RGFW_className: ?[:0]const u8 = null;
-
-var RGFW_mouseButtons: std.EnumArray(MouseButton, KeyState) = std.EnumArray(MouseButton, KeyState).initFill(.{});
 
 fn captureCursor(win: *Window, _: Rect) void {
     var clipRect: os.RECT = undefined;
@@ -1366,9 +1448,6 @@ fn releaseCursor(_: *Window) void {
     _ = os.RegisterRawInputDevices(@ptrCast(&id), 1, @sizeOf(os.RAWINPUTDEVICE));
 }
 
-const RGFW_CAPSLOCK = 1;
-const RGFW_NUMLOCK = 2;
-
 fn RGFW_updateLockState(win: *Window, capital: bool, numlock: bool) void {
     if (capital and win.event.lockState & RGFW_CAPSLOCK == 0)
         win.event.lockState |= RGFW_CAPSLOCK
@@ -1380,361 +1459,6 @@ fn RGFW_updateLockState(win: *Window, capital: bool, numlock: bool) void {
     else if (!numlock and win.event.lockState & RGFW_NUMLOCK != 0)
         win.event.lockState ^= RGFW_NUMLOCK;
 }
-
-const WGL_DRAW_TO_WINDOW_ARB: i32 = 0x2001;
-const WGL_ACCELERATION_ARB: i32 = 0x2003;
-const WGL_SUPPORT_OPENGL_ARB: i32 = 0x2010;
-const WGL_DOUBLE_BUFFER_ARB: i32 = 0x2011;
-const WGL_STEREO_ARB: i32 = 0x2012;
-const WGL_PIXEL_TYPE_ARB: i32 = 0x2013;
-const WGL_COLOR_BITS_ARB: i32 = 0x2014;
-const WGL_RED_BITS_ARB: i32 = 0x2015;
-const WGL_GREEN_BITS_ARB: i32 = 0x2017;
-const WGL_BLUE_BITS_ARB: i32 = 0x2019;
-const WGL_ALPHA_BITS_ARB: i32 = 0x201B;
-const WGL_DEPTH_BITS_ARB: i32 = 0x2022;
-const WGL_STENCIL_BITS_ARB: i32 = 0x2023;
-const WGL_AUX_BUFFERS_ARB: i32 = 0x2024;
-
-const WGL_FULL_ACCELERATION_ARB: i32 = 0x2027;
-const WGL_TYPE_RGBA_ARB: i32 = 0x202B;
-
-const WGL_SAMPLE_BUFFERS_ARB: i32 = 0x2041;
-const WGL_SAMPLES_ARB: i32 = 0x2042;
-
-const WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB: i32 = 0x20A9;
-
-const WGL_CONTEXT_MAJOR_VERSION_ARB: i32 = 0x2091;
-const WGL_CONTEXT_MINOR_VERSION_ARB: i32 = 0x2092;
-const WGL_CONTEXT_PROFILE_MASK_ARB: i32 = 0x9126;
-
-const WGL_CONTEXT_CORE_PROFILE_BIT_ARB: i32 = 0x00000001;
-const WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB: i32 = 0x00000002;
-
-pub fn RGFW_initFormatAttribs(useSoftware: bool) []const i32 {
-    _ = useSoftware;
-
-    return &[_]i32{
-        WGL_DRAW_TO_WINDOW_ARB, 1,
-        WGL_ACCELERATION_ARB,   WGL_FULL_ACCELERATION_ARB,
-        WGL_SUPPORT_OPENGL_ARB, 1,
-        WGL_DOUBLE_BUFFER_ARB,  1,
-        WGL_PIXEL_TYPE_ARB,     WGL_TYPE_RGBA_ARB,
-        WGL_RED_BITS_ARB,       8,
-        WGL_GREEN_BITS_ARB,     8,
-        WGL_BLUE_BITS_ARB,      8,
-        WGL_ALPHA_BITS_ARB,     8,
-        WGL_DEPTH_BITS_ARB,     24,
-        WGL_STENCIL_BITS_ARB,   8,
-        WGL_SAMPLE_BUFFERS_ARB, 1,
-        WGL_SAMPLES_ARB,        4,
-        WGL_COLOR_BITS_ARB,     32,
-        WGL_STEREO_ARB,         0,
-        WGL_AUX_BUFFERS_ARB,    0,
-        0,
-    };
-}
-
-const RGFW_mouseIconSrc = [11]u32{
-    os.OCR_NORMAL,
-    os.OCR_NORMAL,
-    os.OCR_IBEAM,
-    os.OCR_CROSS,
-    os.OCR_HAND,
-    os.OCR_SIZEWE,
-    os.OCR_SIZENS,
-    os.OCR_SIZENWSE,
-    os.OCR_SIZENESW,
-    os.OCR_SIZEALL,
-    os.OCR_NO,
-};
-
-var RGFWjoystickApi: ?*anyopaque = @as(?*anyopaque, @ptrFromInt(@as(c_int, 0)));
-
-fn WndProc(hWnd: os.HWND, message: os.UINT, wParam: os.WPARAM, lParam: os.LPARAM) callconv(os.WINAPI) os.LRESULT {
-    switch (message) {
-        os.WM_MOVE => {
-            RGFW_eventWindow.r.x = os.LOWORD(lParam);
-            RGFW_eventWindow.r.y = os.HIWORD(lParam);
-            RGFW_eventWindow.src.window = hWnd;
-        },
-        os.WM_SIZE => {
-            RGFW_eventWindow.r.w = os.LOWORD(lParam);
-            RGFW_eventWindow.r.h = os.HIWORD(lParam);
-            RGFW_eventWindow.src.window = hWnd;
-        },
-        else => {},
-    }
-
-    return os.DefWindowProcA(hWnd, message, wParam, lParam);
-}
-
-var XInputGetStateSRC: ?*const fn (os.DWORD, *os.STATE) callconv(os.WINAPI) os.DWORD = null;
-var XInputGetKeystrokeSRC: ?*const fn (os.DWORD, os.DWORD, *os.XINPUT_KEYSTROKE) callconv(os.WINAPI) os.DWORD = null;
-
-fn loadXInput() void {
-    const names = [_][:0]const u8{
-        "xinput1_4.dll",
-        "xinput1_3.dll",
-        "xinput9_1_0.dll",
-        "xinput1_2.dll",
-        "xinput1_1.dll",
-    };
-
-    for (names) |name| {
-        RGFW_XInput_dll = os.LoadLibraryA(name);
-        if (RGFW_XInput_dll) |_| {
-            XInputGetStateSRC = @ptrCast(os.GetProcAddress(RGFW_XInput_dll, "XInputGetState"));
-            XInputGetKeystrokeSRC = @ptrCast(os.GetProcAddress(RGFW_XInput_dll, "XInputGetKeystroke"));
-
-            if (XInputGetStateSRC == null or XInputGetKeystrokeSRC == null)
-                std.debug.print("Failed to load XInputGetState\n", .{})
-            else
-                break;
-        }
-    }
-}
-
-pub fn RGFW_init_buffer(win: *Window) void {
-    _ = win;
-}
-
-var RGFW_xinput2RGFW = [22]JoystickButton{
-    .a,
-    .b,
-    .x,
-    .y,
-    .r1,
-    .l1,
-    .l2,
-    .r2,
-    .none,
-    .none,
-    .none,
-    .none,
-    .none,
-    .none,
-    .none,
-    .none,
-    .up,
-    .down,
-    .left,
-    .right,
-    .start,
-    .select,
-};
-
-fn checkXInput(_: *Window, e: *Event) i32 {
-    const INPUT_DEADZONE: i16 = @intFromFloat(0.24 * 0x7FFF);
-
-    for (0..4) |i| {
-        var keystroke: os.XINPUT_KEYSTROKE = undefined;
-
-        if (XInputGetKeystrokeSRC == null) return 0;
-
-        const result = XInputGetKeystrokeSRC.?(@truncate(i), 0, &keystroke);
-
-        if ((keystroke.Flags & os.XINPUT_KEYSTROKE_REPEAT) == 0 and result != os.ERROR_EMPTY) {
-            if (result != 0) return 0;
-            if (keystroke.VirtualKey > 0x5815) continue;
-
-            e.typ = if (keystroke.Flags & os.XINPUT_KEYSTROKE_KEYDOWN != 0) .js_button_pressed else .js_button_released;
-            e.joy_button = RGFW_xinput2RGFW[keystroke.VirtualKey - 0x5800];
-            RGFW_jsPressed[i].set(e.joy_button, keystroke.Flags & os.XINPUT_KEYSTROKE_KEYDOWN == 0);
-
-            return 1;
-        }
-
-        var state: os.STATE = undefined;
-
-        if (XInputGetStateSRC == null or XInputGetStateSRC.?(@truncate(i), &state) == os.ERROR_DEVICE_NOT_CONNECTED) return 0;
-
-        if ((state.Gamepad.sThumbLX < INPUT_DEADZONE and state.Gamepad.sThumbLX > -INPUT_DEADZONE) and
-            (state.Gamepad.sThumbLY < INPUT_DEADZONE and state.Gamepad.sThumbLY > -INPUT_DEADZONE))
-        {
-            state.Gamepad.sThumbLX = 0;
-            state.Gamepad.sThumbLY = 0;
-        }
-
-        if ((state.Gamepad.sThumbRX < INPUT_DEADZONE and state.Gamepad.sThumbRX > -INPUT_DEADZONE) and
-            (state.Gamepad.sThumbRY < INPUT_DEADZONE and state.Gamepad.sThumbRY > -INPUT_DEADZONE))
-        {
-            state.Gamepad.sThumbRX = 0;
-            state.Gamepad.sThumbRY = 0;
-        }
-
-        e.axisesCount = 2;
-        const axis1 = Point{ .x = state.Gamepad.sThumbLX, .y = state.Gamepad.sThumbLY };
-        const axis2 = Point{ .x = state.Gamepad.sThumbRX, .y = state.Gamepad.sThumbRY };
-
-        if (axis1.x != e.axis[0].x or axis1.y != e.axis[0].y or axis2.x != e.axis[1].x or axis2.y != e.axis[1].y) {
-            e.typ = .js_axis_move;
-            e.axis = .{ axis1, axis2 };
-
-            return 1;
-        }
-
-        e.axis = .{ axis1, axis2 };
-    }
-
-    return 0;
-}
-
-pub const MonitorInfo = struct {
-    iIndex: u32 = 0,
-    hMonitor: ?os.HMONITOR = null,
-};
-
-pub fn GetMonitorByHandle(hMonitor: os.HMONITOR, _: os.HDC, _: *os.RECT, dwData: os.LPARAM) callconv(os.WINAPI) os.BOOL {
-    const info: *MonitorInfo = @ptrFromInt(@as(usize, @bitCast(dwData)));
-    if (info.hMonitor == hMonitor) return 0;
-
-    info.iIndex += 1;
-    return 1;
-}
-
-fn win32CreateMonitor(src: ?os.HMONITOR) Monitor {
-    var monitor: Monitor = undefined;
-    var monitorInfo = os.MONITORINFO{};
-
-    _ = os.GetMonitorInfoA(src, &monitorInfo);
-
-    var info = MonitorInfo{ .hMonitor = src };
-
-    if (os.EnumDisplayMonitors(null, null, &GetMonitorByHandle, @bitCast(@intFromPtr(&info))) != 0) {
-        var dd = os.DISPLAY_DEVICEA{};
-
-        var deviceIndex: u32 = 0;
-        while (os.EnumDisplayDevicesA(null, deviceIndex, &dd, 0) != 0) : (deviceIndex += 1) {
-            const deviceName = dd.DeviceName;
-
-            if (os.EnumDisplayDevicesA(@ptrCast(&deviceName), info.iIndex, &dd, 0) != 0) {
-                @memcpy(monitor.name[0..32], dd.DeviceName[0..]);
-                break;
-            }
-        }
-    }
-
-    monitor.rect.x = monitorInfo.rcWork.left;
-    monitor.rect.y = monitorInfo.rcWork.top;
-    monitor.rect.w = monitorInfo.rcWork.right - monitorInfo.rcWork.left;
-    monitor.rect.h = monitorInfo.rcWork.bottom - monitorInfo.rcWork.top;
-
-    const hdc = os.GetDC(null);
-
-    const ppiX: f32 = @floatFromInt(os.GetDeviceCaps(hdc, os.LOGPIXELSX));
-    const ppiY: f32 = @floatFromInt(os.GetDeviceCaps(hdc, os.LOGPIXELSY));
-    _ = os.ReleaseDC(null, hdc);
-
-    monitor.physW = @as(f32, @floatFromInt(os.GetSystemMetrics(os.SM_CYSCREEN))) / ppiX;
-    monitor.physH = @as(f32, @floatFromInt(os.GetSystemMetrics(os.SM_CXSCREEN))) / ppiY;
-
-    return monitor;
-}
-
-var RGFW_monitors: [6]Monitor = @import("std").mem.zeroes([6]Monitor);
-
-fn GetMonitorHandle(hMonitor: os.HMONITOR, _: os.HDC, _: *os.RECT, dwData: os.LPARAM) callconv(os.WINAPI) os.BOOL {
-    const info: *MonitorInfo = @ptrFromInt(@as(usize, @bitCast(dwData)));
-
-    if (info.iIndex >= 6) return 0;
-
-    RGFW_monitors[info.iIndex] = win32CreateMonitor(hMonitor);
-    info.iIndex += 1;
-
-    return 1;
-}
-
-fn RGFW_loadHandleImage(_: *Window, src: []const u8, a: Area, icon: bool) os.HICON {
-    const bi = os.BITMAPV5HEADER{
-        .bV5Width = @bitCast(a.w),
-        .bV5Height = -@as(i32, @bitCast(a.h)),
-        .bV5Planes = 1,
-        .bV5BitCount = 32,
-        .bV5Compression = 3,
-        .bV5RedMask = 0x00ff0000,
-        .bV5GreenMask = 0x0000ff00,
-        .bV5BlueMask = 0x000000ff,
-        .bV5AlphaMask = 0xff000000,
-    };
-
-    var target: [*]u8 = undefined;
-    var source: [*]const u8 = src.ptr;
-
-    const dc = os.GetDC(null);
-    const color = os.CreateDIBSection(dc, @ptrCast(&bi), os.DIB_RGB_COLORS, @ptrCast(&target), null, 0);
-    _ = os.ReleaseDC(null, dc);
-
-    const mask = os.CreateBitmap(@bitCast(a.w), @bitCast(a.h), 1, 1, null);
-
-    for (0..(a.w * a.h)) |_| {
-        target[0] = source[2];
-        target[1] = source[1];
-        target[2] = source[0];
-        target[3] = source[3];
-        target += 4;
-        source += 4;
-    }
-
-    var ii = os.ICONINFO{
-        .fIcon = @intFromBool(icon),
-        .xHotspot = 0,
-        .yHotspot = 0,
-        .hbmMask = mask,
-        .hbmColor = color,
-    };
-
-    const handle = os.CreateIconIndirect(&ii);
-
-    _ = os.DeleteObject(@ptrCast(color));
-    _ = os.DeleteObject(@ptrCast(mask));
-
-    return handle;
-}
-
-fn RGFW_win32_initTimer() os.LARGE_INTEGER {
-    const frequency = struct {
-        var static = os.LARGE_INTEGER{ .QuadPart = 0 };
-    };
-
-    if (frequency.static.QuadPart == 0) {
-        _ = os.timeBeginPeriod(1);
-        _ = os.QueryPerformanceFrequency(&frequency.static);
-    }
-
-    return frequency.static;
-}
-
-pub const WindowOptions = packed struct {
-    /// the window doesn't have border
-    no_border: bool = false,
-    ///  the window cannot be resized  by the user
-    no_resize: bool = false,
-    /// the window supports drag and dro
-    allow_dnd: bool = false,
-    /// the window should hide the mouse or not (can be toggled later on) using `RGFW_window_mouseSho
-    hide_mouse: bool = false,
-    /// the window is fullscreen by default or not
-    fullscreen: bool = false,
-    /// center the window on the screen
-    center: bool = false,
-    /// use OpenGL software rendering
-    opengl_software: bool = false,
-    /// (cocoa only), move to resource folder
-    cocoa_move_to_resource_dir: bool = false,
-    /// scale the window to the screen
-    scale_to_monitor: bool = false,
-    /// DO not init an API (mostly for bindings, you should use ` no_api: bool = false, ` in C
-    no_init_api: bool = false,
-    /// don't render (using the GPU based API
-    no_gpu_render: bool = false,
-    /// don't render (using the CPU based buffer rendering
-    no_cpu_render: bool = false,
-    /// the window is hidden
-    window_hide: bool = false,
-    hold_mouse: bool = false,
-    mouse_left: bool = false,
-};
 
 test {
     @setEvalBranchQuota(0x100000);
