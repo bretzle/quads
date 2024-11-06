@@ -25,22 +25,26 @@ pub const EventType = enum {
     dnd_init,
 };
 
-pub const RGFW_joystick_codes = u8;
-pub const RGFW_JS_A: c_int = 0;
-pub const RGFW_JS_B: c_int = 1;
-pub const RGFW_JS_Y: c_int = 2;
-pub const RGFW_JS_X: c_int = 3;
-pub const RGFW_JS_START: c_int = 9;
-pub const RGFW_JS_SELECT: c_int = 8;
-pub const RGFW_JS_HOME: c_int = 10;
-pub const RGFW_JS_UP: c_int = 13;
-pub const RGFW_JS_DOWN: c_int = 14;
-pub const RGFW_JS_LEFT: c_int = 15;
-pub const RGFW_JS_RIGHT: c_int = 16;
-pub const RGFW_JS_L1: c_int = 4;
-pub const RGFW_JS_L2: c_int = 5;
-pub const RGFW_JS_R1: c_int = 6;
-pub const RGFW_JS_R2: c_int = 7;
+pub const JoystickButton = enum {
+    none,
+    a,
+    b,
+    y,
+    x,
+    start,
+    select,
+    home,
+    up,
+    down,
+    left,
+    right,
+    l1,
+    l2,
+    r1,
+    r2,
+};
+
+pub const MouseButton = enum { left, middle, right, scroll_up, scroll_down };
 
 var gl_procs: gl.ProcTable = undefined;
 
@@ -69,7 +73,7 @@ pub const Monitor = struct {
 };
 
 pub fn getMonitors() []const Monitor {
-    var info = RGFW_mInfo{ .iIndex = 0, .hMonitor = undefined };
+    var info = MonitorInfo{ .iIndex = 0, .hMonitor = undefined };
 
     while (os.EnumDisplayMonitors(null, null, GetMonitorHandle, @bitCast(@intFromPtr(&info))) != 0) {}
 
@@ -86,12 +90,13 @@ pub const Event = struct {
     droppedFiles: [][]u8,
     droppedFilesCount: u32,
     typ: EventType,
-    point: Point = .{},
+    point: Point,
     keyCode: u8,
     repeat: bool,
     inFocus: bool,
     lockState: u8,
-    button: u8,
+    button: MouseButton,
+    joy_button: JoystickButton,
     scroll: f64,
     joystick: u16,
     axisesCount: u8,
@@ -120,10 +125,6 @@ pub const Window = struct {
 
 pub fn setClassName(name: [:0]const u8) void {
     RGFW_className = name;
-}
-
-pub fn setBufferSize(size: Area) void {
-    RGFW_bufferSize = size;
 }
 
 fn todo(msg: []const u8, loc: std.builtin.SourceLocation) void {
@@ -326,8 +327,7 @@ pub fn createWindow(allocator: std.mem.Allocator, name: [:0]const u8, rect: Rect
     }
 
     if (args.hide_mouse) {
-        // RGFW_window_showMouse(win, 0);
-        todo("hide mouse", @src());
+        window_showMouse(win, false);
     }
 
     _ = os.ShowWindow(win.src.window, os.SW_SHOWNORMAL);
@@ -359,13 +359,13 @@ pub fn window_checkEvent(win: *Window) ?*Event {
             win.r.x = RGFW_eventWindow.r.x;
             win.r.y = RGFW_eventWindow.r.y;
             win.event.typ = .window_moved;
-            RGFW_windowMoveCallback(win, win.r);
+            windowMoveCallback(win, win.r);
         }
         if (RGFW_eventWindow.r.w != -1) {
             win.r.w = RGFW_eventWindow.r.w;
             win.r.h = RGFW_eventWindow.r.h;
             win.event.typ = .window_resized;
-            RGFW_windowResizeCallback(win, win.r);
+            windowResizeCallback(win, win.r);
         }
         RGFW_eventWindow.src.window = null;
         RGFW_eventWindow.r = .{ .x = -1, .y = -1, .w = -1, .h = -1 };
@@ -425,7 +425,7 @@ pub fn window_checkEvent(win: *Window) ?*Event {
     if (os.PeekMessageA(&msg, win.src.window, 0, 0, os.PM_REMOVE) != 0) {
         switch (msg.message) {
             os.WM_CLOSE, os.WM_QUIT => {
-                RGFW_windowQuitCallback(win);
+                windowQuitCallback(win);
                 win.event.typ = .quit;
             },
             os.WM_ACTIVATE => {
@@ -433,20 +433,20 @@ pub fn window_checkEvent(win: *Window) ?*Event {
 
                 if (win.event.inFocus) {
                     win.event.typ = .focus_in;
-                    RGFW_focusCallback(win, true);
+                    focusCallback(win, true);
                 } else {
                     win.event.typ = .focus_out;
-                    RGFW_focusCallback(win, false);
+                    focusCallback(win, false);
                 }
             },
             os.WM_PAINT => {
                 win.event.typ = .window_refresh;
-                RGFW_windowRefreshCallback(win);
+                windowRefreshCallback(win);
             },
             os.WM_MOUSELEAVE => {
                 win.event.typ = .mouse_leave;
                 win._winArgs.mouse_left = true;
-                RGFW_mouseNotifyCallBack(win, win.event.point, false);
+                mouseNotifyCallBack(win, win.event.point, false);
             },
             os.WM_KEYUP, os.WM_KEYDOWN => {
                 win.event.keyCode = @truncate(RGFW_apiKeyCodeToRGFW(@truncate(msg.wParam)));
@@ -475,72 +475,72 @@ pub fn window_checkEvent(win: *Window) ?*Event {
 
                 win.event.typ = if (msg.message == os.WM_KEYUP) .key_released else .key_pressed;
                 RGFW_keyboard[win.event.keyCode].current = msg.message == os.WM_KEYDOWN;
-                RGFW_keyCallback(win, win.event.keyCode, std.mem.sliceTo(&win.event.keyName, 0), win.event.lockState, false);
+                keyCallback(win, win.event.keyCode, std.mem.sliceTo(&win.event.keyName, 0), win.event.lockState, false);
             },
             os.WM_MOUSEMOVE => if (!win._winArgs.hold_mouse) {
                 win.event.typ = .mouse_pos_changed;
                 win.event.point.x = os.GET_X_LPARAM(msg.lParam);
                 win.event.point.y = os.GET_Y_LPARAM(msg.lParam);
-                RGFW_mousePosCallback(win, win.event.point);
+                mousePosCallback(win, win.event.point);
 
                 if (win._winArgs.mouse_left) {
                     win._winArgs.mouse_left = !win._winArgs.mouse_left;
                     win.event.typ = .mouse_enter;
-                    RGFW_mouseNotifyCallBack(win, win.event.point, true);
+                    mouseNotifyCallBack(win, win.event.point, true);
                 }
             },
             os.WM_INPUT => if (win._winArgs.hold_mouse) {
                 todo("raw input", @src());
             },
             os.WM_LBUTTONDOWN => {
-                win.event.button = 1;
-                RGFW_mouseButtons[win.event.button].prev = RGFW_mouseButtons[win.event.button].current;
-                RGFW_mouseButtons[win.event.button].current = true;
+                win.event.button = .left;
+                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                RGFW_mouseButtons.getPtr(win.event.button).current = true;
                 win.event.typ = .mouse_button_pressed;
-                RGFW_mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                mouseButtonCallback(win, win.event.button, win.event.scroll, true);
             },
             os.WM_RBUTTONDOWN => {
-                win.event.button = 3;
+                win.event.button = .right;
                 win.event.typ = .mouse_button_pressed;
-                RGFW_mouseButtons[win.event.button].prev = RGFW_mouseButtons[win.event.button].current;
-                RGFW_mouseButtons[win.event.button].current = true;
-                RGFW_mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                RGFW_mouseButtons.getPtr(win.event.button).current = true;
+                mouseButtonCallback(win, win.event.button, win.event.scroll, true);
             },
             os.WM_MBUTTONDOWN => {
-                win.event.button = 2;
+                win.event.button = .middle;
                 win.event.typ = .mouse_button_pressed;
-                RGFW_mouseButtons[win.event.button].prev = RGFW_mouseButtons[win.event.button].current;
-                RGFW_mouseButtons[win.event.button].current = true;
-                RGFW_mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                RGFW_mouseButtons.getPtr(win.event.button).current = true;
+                mouseButtonCallback(win, win.event.button, win.event.scroll, true);
             },
             os.WM_MOUSEWHEEL => {
-                win.event.button = if (msg.wParam > 0) 4 else 5;
-                RGFW_mouseButtons[win.event.button].prev = RGFW_mouseButtons[win.event.button].current;
-                RGFW_mouseButtons[win.event.button].current = true;
+                win.event.button = if (msg.wParam > 0) .scroll_up else .scroll_down;
+                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                RGFW_mouseButtons.getPtr(win.event.button).current = true;
                 win.event.scroll = @as(f64, @floatFromInt(os.HIWORD(msg.wParam))) / 120.0;
                 win.event.typ = .mouse_button_pressed;
-                RGFW_mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                mouseButtonCallback(win, win.event.button, win.event.scroll, true);
             },
             os.WM_LBUTTONUP => {
-                win.event.button = 1;
+                win.event.button = .left;
                 win.event.typ = .mouse_button_released;
-                RGFW_mouseButtons[win.event.button].prev = RGFW_mouseButtons[win.event.button].current;
-                RGFW_mouseButtons[win.event.button].current = false;
-                RGFW_mouseButtonCallback(win, win.event.button, win.event.scroll, false);
+                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                RGFW_mouseButtons.getPtr(win.event.button).current = false;
+                mouseButtonCallback(win, win.event.button, win.event.scroll, false);
             },
             os.WM_RBUTTONUP => {
-                win.event.button = 3;
+                win.event.button = .right;
                 win.event.typ = .mouse_button_released;
-                RGFW_mouseButtons[win.event.button].prev = RGFW_mouseButtons[win.event.button].current;
-                RGFW_mouseButtons[win.event.button].current = false;
-                RGFW_mouseButtonCallback(win, win.event.button, win.event.scroll, false);
+                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                RGFW_mouseButtons.getPtr(win.event.button).current = false;
+                mouseButtonCallback(win, win.event.button, win.event.scroll, false);
             },
             os.WM_MBUTTONUP => {
-                win.event.button = 2;
+                win.event.button = .middle;
                 win.event.typ = .mouse_button_released;
-                RGFW_mouseButtons[win.event.button].prev = RGFW_mouseButtons[win.event.button].current;
-                RGFW_mouseButtons[win.event.button].current = false;
-                RGFW_mouseButtonCallback(win, win.event.button, win.event.scroll, false);
+                RGFW_mouseButtons.getPtr(win.event.button).prev = RGFW_mouseButtons.get(win.event.button).current;
+                RGFW_mouseButtons.getPtr(win.event.button).current = false;
+                mouseButtonCallback(win, win.event.button, win.event.scroll, false);
             },
             os.WM_DROPFILES => {
                 // win.event.typ = @as(u32, @bitCast(RGFW_dnd_init));
@@ -570,28 +570,34 @@ pub fn window_checkEvent(win: *Window) ?*Event {
 
     if (os.IsWindow(win.src.window) == 0) {
         win.event.typ = .quit;
-        RGFW_windowQuitCallback(win);
+        windowQuitCallback(win);
     }
 
     return if (win.event.typ != .none) &win.event else null;
 }
 
-pub const RGFW_eventWait = i32;
-pub const RGFW_NEXT: c_int = -1;
-pub const RGFW_NO_WAIT: c_int = 0;
+pub const Wait = enum(i32) {
+    no_wait = 0,
+    next = -1,
+    _,
 
-pub fn window_eventWait(_: *Window, waitMS: i32) void {
-    _ = os.MsgWaitForMultipleObjects(0, null, 0, @intCast(waitMS * 1000), os.QS_ALLINPUT);
+    pub inline fn millis(ms: i32) Wait {
+        return @enumFromInt(ms);
+    }
+};
+
+pub fn window_eventWait(_: *Window, wait: Wait) void {
+    _ = os.MsgWaitForMultipleObjects(0, null, 0, @intCast(@as(i32, @intFromEnum(wait)) * 1000), os.QS_ALLINPUT);
 }
 
-pub fn RGFW_window_checkEvents(win: *Window, waitMS: i32) void {
-    window_eventWait(win, waitMS);
+pub fn window_checkEvents(win: *Window, wait: Wait) void {
+    window_eventWait(win, wait);
     while ((window_checkEvent(win) != null) and !window_shouldClose(win)) {
         if (win.event.typ == .quit) return;
     }
 }
 
-pub fn RGFW_stopCheckEvents() void {
+pub fn stopCheckEvents() void {
     _ = os.PostMessageA(RGFW_root.?.src.window, 0, 0, 0);
 }
 
@@ -733,7 +739,7 @@ pub fn window_show(win: *Window) void {
 
 pub fn window_setShouldClose(win: *Window) void {
     win.event.typ = .quit;
-    RGFW_windowQuitCallback(win);
+    windowQuitCallback(win);
 }
 
 pub fn getGlobalMousePoint() Point {
@@ -750,7 +756,7 @@ pub fn window_getMousePoint(win: *Window) Point {
     return .{ .x = p.x, .y = p.y };
 }
 
-pub fn RGFW_window_showMouse(win: *Window, show: bool) void {
+pub fn window_showMouse(win: *Window, show: bool) void {
     if (show) {
         window_setMouseDefault(win);
     } else {
@@ -865,111 +871,111 @@ pub fn isClicked(win: *Window, key: Key) bool {
     return wasPressed(win, key) and !isPressed(win, key);
 }
 
-pub fn isMousePressed(win: *Window, button: u8) bool {
-    return RGFW_mouseButtons[button].current and win.event.inFocus;
+pub fn isMousePressed(win: *Window, button: MouseButton) bool {
+    return RGFW_mouseButtons.get(button).current and win.event.inFocus;
 }
 
-pub fn wasMousePressed(win: *Window, button: u8) bool {
-    return RGFW_mouseButtons[button].prev and win.event.inFocus;
+pub fn wasMousePressed(win: *Window, button: MouseButton) bool {
+    return RGFW_mouseButtons.get(button).prev and win.event.inFocus;
 }
 
-pub fn isMouseHeld(win: *Window, button: u8) bool {
+pub fn isMouseHeld(win: *Window, button: MouseButton) bool {
     return (isMousePressed(win, button) and wasMousePressed(win, button));
 }
 
-pub fn isMouseReleased(win: *Window, button: u8) bool {
+pub fn isMouseReleased(win: *Window, button: MouseButton) bool {
     return (!isMousePressed(win, button) and wasMousePressed(win, button));
 }
 
-pub const RGFW_windowmovefunc = *const fn (*Window, Rect) void;
-pub const RGFW_windowresizefunc = *const fn (*Window, Rect) void;
-pub const RGFW_windowquitfunc = *const fn (*Window) void;
-pub const RGFW_focusfunc = *const fn (*Window, bool) void;
-pub const RGFW_mouseNotifyfunc = *const fn (*Window, Point, bool) void;
-pub const RGFW_mouseposfunc = *const fn (*Window, Point) void;
-pub const RGFW_dndInitfunc = *const fn (*Window, Point) void;
-pub const RGFW_windowrefreshfunc = *const fn (*Window) void;
-pub const RGFW_keyfunc = *const fn (*Window, u32, []u8, u8, bool) void;
-pub const RGFW_mousebuttonfunc = *const fn (*Window, u8, f64, bool) void;
-pub const RGFW_jsButtonfunc = *const fn (*Window, u16, u8, bool) void;
-pub const RGFW_jsAxisfunc = *const fn (*Window, u16, []Point, u8) void;
-pub const RGFW_dndfunc = *const fn (*Window, [][]u8, u32) void;
+pub const WindowMoveFn = *const fn (*Window, Rect) void;
+pub const WindowResizeFn = *const fn (*Window, Rect) void;
+pub const WindowQuitFn = *const fn (*Window) void;
+pub const FocusFn = *const fn (*Window, bool) void;
+pub const MouseNotifyFn = *const fn (*Window, Point, bool) void;
+pub const MousePosFn = *const fn (*Window, Point) void;
+pub const DndInitFn = *const fn (*Window, Point) void;
+pub const WindowRefreshFn = *const fn (*Window) void;
+pub const KeyFn = *const fn (*Window, u32, []u8, u8, bool) void;
+pub const MouseButtonFn = *const fn (*Window, MouseButton, f64, bool) void;
+pub const JoyButtonFn = *const fn (*Window, u16, u8, bool) void;
+pub const JoyAxisFn = *const fn (*Window, u16, []Point, u8) void;
+pub const DndFn = *const fn (*Window, [][]u8, u32) void;
 
-pub fn setWindowMoveCallback(func: RGFW_windowmovefunc) ?RGFW_windowmovefunc {
-    const prev = if (RGFW_windowMoveCallback == RGFW_windowmovefuncEMPTY) null else RGFW_windowMoveCallback;
-    RGFW_windowMoveCallback = func;
+pub fn setWindowMoveCallback(func: WindowMoveFn) ?WindowMoveFn {
+    const prev = if (windowMoveCallback == stubs.windowMove) null else windowMoveCallback;
+    windowMoveCallback = func;
     return prev;
 }
 
-pub fn setWindowResizeCallback(func: RGFW_windowresizefunc) ?RGFW_windowresizefunc {
-    const prev = if (RGFW_windowResizeCallback == RGFW_windowresizefuncEMPTY) null else RGFW_windowResizeCallback;
-    RGFW_windowResizeCallback = func;
+pub fn setWindowResizeCallback(func: WindowResizeFn) ?WindowResizeFn {
+    const prev = if (windowResizeCallback == stubs.windowResize) null else windowResizeCallback;
+    windowResizeCallback = func;
     return prev;
 }
 
-pub fn setWindowQuitCallback(func: RGFW_windowquitfunc) ?RGFW_windowquitfunc {
-    const prev = if (RGFW_windowQuitCallback == RGFW_windowquitfuncEMPTY) null else RGFW_windowQuitCallback;
-    RGFW_windowQuitCallback = func;
+pub fn setWindowQuitCallback(func: WindowQuitFn) ?WindowQuitFn {
+    const prev = if (windowQuitCallback == stubs.windowQuit) null else windowQuitCallback;
+    windowQuitCallback = func;
     return prev;
 }
 
-pub fn setMousePosCallback(func: RGFW_mouseposfunc) ?RGFW_mouseposfunc {
-    const prev = if (RGFW_mousePosCallback == RGFW_mouseposfuncEMPTY) null else RGFW_mousePosCallback;
-    RGFW_mousePosCallback = func;
+pub fn setMousePosCallback(func: MousePosFn) ?MousePosFn {
+    const prev = if (mousePosCallback == stubs.mousePos) null else mousePosCallback;
+    mousePosCallback = func;
     return prev;
 }
 
-pub fn setWindowRefreshCallback(func: RGFW_windowrefreshfunc) ?RGFW_windowrefreshfunc {
-    const prev = if (RGFW_windowRefreshCallback == RGFW_windowrefreshfuncEMPTY) null else RGFW_windowRefreshCallback;
-    RGFW_windowRefreshCallback = func;
+pub fn setWindowRefreshCallback(func: WindowRefreshFn) ?WindowRefreshFn {
+    const prev = if (windowRefreshCallback == stubs.windowRefresh) null else windowRefreshCallback;
+    windowRefreshCallback = func;
     return prev;
 }
 
-pub fn setFocusCallback(func: RGFW_focusfunc) ?RGFW_focusfunc {
-    const prev = if (RGFW_focusCallback == RGFW_focusfuncEMPTY) null else RGFW_focusCallback;
-    RGFW_focusCallback = func;
+pub fn setFocusCallback(func: FocusFn) ?FocusFn {
+    const prev = if (focusCallback == stubs.focus) null else focusCallback;
+    focusCallback = func;
     return prev;
 }
 
-pub fn setMouseNotifyCallBack(func: RGFW_mouseNotifyfunc) ?RGFW_mouseNotifyfunc {
-    const prev = if (RGFW_mouseNotifyCallBack == RGFW_mouseNotifyfuncEMPTY) null else RGFW_mouseNotifyCallBack;
-    RGFW_mouseNotifyCallBack = func;
+pub fn setMouseNotifyCallBack(func: MouseNotifyFn) ?MouseNotifyFn {
+    const prev = if (mouseNotifyCallBack == stubs.mouseNotify) null else mouseNotifyCallBack;
+    mouseNotifyCallBack = func;
     return prev;
 }
 
-pub fn setDndCallback(func: RGFW_dndfunc) ?RGFW_dndfunc {
-    const prev = if (RGFW_dndCallback == RGFW_dndfuncEMPTY) null else RGFW_dndCallback;
-    RGFW_dndCallback = func;
+pub fn setDndCallback(func: DndFn) ?DndFn {
+    const prev = if (dndCallback == stubs.dnd) null else dndCallback;
+    dndCallback = func;
     return prev;
 }
 
-pub fn setDndInitCallback(func: RGFW_dndInitfunc) ?RGFW_dndInitfunc {
-    const prev = if (RGFW_dndInitCallback == RGFW_dndInitfuncEMPTY) null else RGFW_dndInitCallback;
-    RGFW_dndInitCallback = func;
+pub fn setDndInitCallback(func: DndInitFn) ?DndInitFn {
+    const prev = if (dndInitCallback == stubs.dndInit) null else dndInitCallback;
+    dndInitCallback = func;
     return prev;
 }
 
-pub fn setKeyCallback(func: RGFW_keyfunc) ?RGFW_keyfunc {
-    const prev = if (RGFW_keyCallback == RGFW_keyfuncEMPTY) null else RGFW_keyCallback;
-    RGFW_keyCallback = func;
+pub fn setKeyCallback(func: KeyFn) ?KeyFn {
+    const prev = if (keyCallback == stubs.key) null else keyCallback;
+    keyCallback = func;
     return prev;
 }
 
-pub fn setMouseButtonCallback(func: RGFW_mousebuttonfunc) ?RGFW_mousebuttonfunc {
-    const prev = if (RGFW_mouseButtonCallback == RGFW_mousebuttonfuncEMPTY) null else RGFW_mouseButtonCallback;
-    RGFW_mouseButtonCallback = func;
+pub fn setMouseButtonCallback(func: MouseButtonFn) ?MouseButtonFn {
+    const prev = if (mouseButtonCallback == stubs.mouseButton) null else mouseButtonCallback;
+    mouseButtonCallback = func;
     return prev;
 }
 
-pub fn setjsButtonCallback(func: RGFW_jsButtonfunc) ?RGFW_jsButtonfunc {
-    const prev = if (RGFW_jsButtonCallback == RGFW_jsButtonfuncEMPTY) null else RGFW_jsButtonCallback;
-    RGFW_jsButtonCallback = func;
+pub fn setJoyButtonCallback(func: JoyButtonFn) ?JoyButtonFn {
+    const prev = if (joyButtonCallback == stubs.joyButton) null else joyButtonCallback;
+    joyButtonCallback = func;
     return prev;
 }
 
-pub fn setjsAxisCallback(func: RGFW_jsAxisfunc) ?RGFW_jsAxisfunc {
-    const prev = if (RGFW_jsAxisCallback == RGFW_jsAxisfuncEMPTY) null else RGFW_jsAxisCallback;
-    RGFW_jsAxisCallback = func;
+pub fn setJoyAxisCallback(func: JoyAxisFn) ?JoyAxisFn {
+    const prev = if (joyAxisCallback == stubs.joyAxis) null else joyAxisCallback;
+    joyAxisCallback = func;
     return prev;
 }
 
@@ -981,8 +987,8 @@ pub fn registerJoystickF(_: *Window, _: [:0]const u8) u16 {
     return RGFW_joystickCount - 1;
 }
 
-pub fn isPressedJS(_: *Window, controller: u16, button: u8) u32 {
-    return RGFW_jsPressed[controller][button];
+pub fn isPressedJS(_: *Window, controller: u16, button: JoystickButton) bool {
+    return RGFW_jsPressed[controller].get(button);
 }
 
 pub fn makeCurrent(win: *Window) void {
@@ -1248,9 +1254,9 @@ var RGFW_keycodes: [337]Key = [337]Key{
     .page_up,
 };
 
-const RGFW_keyState = packed struct { current: bool = false, prev: bool = false };
+const KeyState = packed struct { current: bool = false, prev: bool = false };
 
-var RGFW_keyboard: [100]RGFW_keyState = .{.{}} ** 100;
+var RGFW_keyboard: [100]KeyState = .{.{}} ** 100;
 
 fn RGFW_apiKeyCodeToRGFW(keycode: u32) u32 {
     _ = std.meta.intToEnum(Key, keycode) catch return 0;
@@ -1263,39 +1269,39 @@ fn RGFW_resetKey() void {
     }
 }
 
-var RGFW_jsPressed: [4][16]u8 = std.mem.zeroes([4][16]u8);
+var RGFW_jsPressed: [4]std.EnumArray(JoystickButton, bool) = .{std.EnumArray(JoystickButton, bool).initFill(false)} ** 4;
 var RGFW_joysticks: [4]i32 = std.mem.zeroes([4]i32);
 var RGFW_joystickCount: u16 = 0;
 
-fn RGFW_windowmovefuncEMPTY(_: *Window, _: Rect) void {}
-fn RGFW_windowresizefuncEMPTY(_: *Window, _: Rect) void {}
-fn RGFW_windowquitfuncEMPTY(_: *Window) void {}
-fn RGFW_focusfuncEMPTY(_: *Window, _: bool) void {}
-fn RGFW_mouseNotifyfuncEMPTY(_: *Window, _: Point, _: bool) void {}
-fn RGFW_mouseposfuncEMPTY(_: *Window, _: Point) void {}
-fn RGFW_dndInitfuncEMPTY(_: *Window, _: Point) void {}
-fn RGFW_windowrefreshfuncEMPTY(_: *Window) void {}
-fn RGFW_keyfuncEMPTY(_: *Window, _: u32, _: []u8, _: u8, _: bool) void {}
-fn RGFW_mousebuttonfuncEMPTY(_: *Window, _: u8, _: f64, _: bool) void {}
-fn RGFW_jsButtonfuncEMPTY(_: *Window, _: u16, _: u8, _: bool) void {}
-fn RGFW_jsAxisfuncEMPTY(_: *Window, _: u16, _: []Point, _: u8) void {}
-fn RGFW_dndfuncEMPTY(_: *Window, _: [][]u8, _: u32) void {}
+const stubs = struct {
+    fn windowMove(_: *Window, _: Rect) void {}
+    fn windowResize(_: *Window, _: Rect) void {}
+    fn windowQuit(_: *Window) void {}
+    fn focus(_: *Window, _: bool) void {}
+    fn mouseNotify(_: *Window, _: Point, _: bool) void {}
+    fn mousePos(_: *Window, _: Point) void {}
+    fn dndInit(_: *Window, _: Point) void {}
+    fn windowRefresh(_: *Window) void {}
+    fn key(_: *Window, _: u32, _: []u8, _: u8, _: bool) void {}
+    fn mouseButton(_: *Window, _: MouseButton, _: f64, _: bool) void {}
+    fn joyButton(_: *Window, _: u16, _: u8, _: bool) void {}
+    fn joyAxis(_: *Window, _: u16, _: []Point, _: u8) void {}
+    fn dnd(_: *Window, _: [][]u8, _: u32) void {}
+};
 
-var RGFW_windowMoveCallback: RGFW_windowmovefunc = RGFW_windowmovefuncEMPTY;
-var RGFW_windowResizeCallback: RGFW_windowresizefunc = RGFW_windowresizefuncEMPTY;
-var RGFW_windowQuitCallback: RGFW_windowquitfunc = RGFW_windowquitfuncEMPTY;
-var RGFW_mousePosCallback: RGFW_mouseposfunc = RGFW_mouseposfuncEMPTY;
-var RGFW_windowRefreshCallback: RGFW_windowrefreshfunc = RGFW_windowrefreshfuncEMPTY;
-var RGFW_focusCallback: RGFW_focusfunc = RGFW_focusfuncEMPTY;
-var RGFW_mouseNotifyCallBack: RGFW_mouseNotifyfunc = RGFW_mouseNotifyfuncEMPTY;
-var RGFW_dndCallback: RGFW_dndfunc = RGFW_dndfuncEMPTY;
-var RGFW_dndInitCallback: RGFW_dndInitfunc = RGFW_dndInitfuncEMPTY;
-var RGFW_keyCallback: RGFW_keyfunc = RGFW_keyfuncEMPTY;
-var RGFW_mouseButtonCallback: RGFW_mousebuttonfunc = RGFW_mousebuttonfuncEMPTY;
-var RGFW_jsButtonCallback: RGFW_jsButtonfunc = RGFW_jsButtonfuncEMPTY;
-var RGFW_jsAxisCallback: RGFW_jsAxisfunc = RGFW_jsAxisfuncEMPTY;
-
-var RGFW_bufferSize = Area{};
+var windowMoveCallback: WindowMoveFn = stubs.windowMove;
+var windowResizeCallback: WindowResizeFn = stubs.windowResize;
+var windowQuitCallback: WindowQuitFn = stubs.windowQuit;
+var focusCallback: FocusFn = stubs.focus;
+var mouseNotifyCallBack: MouseNotifyFn = stubs.mouseNotify;
+var mousePosCallback: MousePosFn = stubs.mousePos;
+var dndInitCallback: DndInitFn = stubs.dndInit;
+var windowRefreshCallback: WindowRefreshFn = stubs.windowRefresh;
+var keyCallback: KeyFn = stubs.key;
+var mouseButtonCallback: MouseButtonFn = stubs.mouseButton;
+var joyButtonCallback: JoyButtonFn = stubs.joyButton;
+var joyAxisCallback: JoyAxisFn = stubs.joyAxis;
+var dndCallback: DndFn = stubs.dnd;
 
 const max_drops = 260;
 const max_path = 260;
@@ -1330,7 +1336,7 @@ pub fn RGFW_window_basic_init(allocator: std.mem.Allocator, rect: Rect, args: Wi
 var RGFW_root: ?*Window = null;
 var RGFW_className: ?[:0]const u8 = null;
 
-var RGFW_mouseButtons: [5]RGFW_keyState = .{.{}} ** 5;
+var RGFW_mouseButtons: std.EnumArray(MouseButton, KeyState) = std.EnumArray(MouseButton, KeyState).initFill(.{});
 
 fn captureCursor(win: *Window, _: Rect) void {
     var clipRect: os.RECT = undefined;
@@ -1493,29 +1499,29 @@ pub fn RGFW_init_buffer(win: *Window) void {
     _ = win;
 }
 
-var RGFW_xinput2RGFW = [22]u8{
-    RGFW_JS_A,
-    RGFW_JS_B,
-    RGFW_JS_X,
-    RGFW_JS_Y,
-    RGFW_JS_R1,
-    RGFW_JS_L1,
-    RGFW_JS_L2,
-    RGFW_JS_R2,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    RGFW_JS_UP,
-    RGFW_JS_DOWN,
-    RGFW_JS_LEFT,
-    RGFW_JS_RIGHT,
-    RGFW_JS_START,
-    RGFW_JS_SELECT,
+var RGFW_xinput2RGFW = [22]JoystickButton{
+    .a,
+    .b,
+    .x,
+    .y,
+    .r1,
+    .l1,
+    .l2,
+    .r2,
+    .none,
+    .none,
+    .none,
+    .none,
+    .none,
+    .none,
+    .none,
+    .none,
+    .up,
+    .down,
+    .left,
+    .right,
+    .start,
+    .select,
 };
 
 fn checkXInput(_: *Window, e: *Event) i32 {
@@ -1533,8 +1539,8 @@ fn checkXInput(_: *Window, e: *Event) i32 {
             if (keystroke.VirtualKey > 0x5815) continue;
 
             e.typ = if (keystroke.Flags & os.XINPUT_KEYSTROKE_KEYDOWN != 0) .js_button_pressed else .js_button_released;
-            e.button = RGFW_xinput2RGFW[keystroke.VirtualKey - 0x5800];
-            RGFW_jsPressed[i][e.button] = @intFromBool(keystroke.Flags & os.XINPUT_KEYSTROKE_KEYDOWN == 0);
+            e.joy_button = RGFW_xinput2RGFW[keystroke.VirtualKey - 0x5800];
+            RGFW_jsPressed[i].set(e.joy_button, keystroke.Flags & os.XINPUT_KEYSTROKE_KEYDOWN == 0);
 
             return 1;
         }
@@ -1574,13 +1580,13 @@ fn checkXInput(_: *Window, e: *Event) i32 {
     return 0;
 }
 
-pub const RGFW_mInfo = struct {
-    iIndex: u32,
-    hMonitor: ?os.HMONITOR,
+pub const MonitorInfo = struct {
+    iIndex: u32 = 0,
+    hMonitor: ?os.HMONITOR = null,
 };
 
 pub fn GetMonitorByHandle(hMonitor: os.HMONITOR, _: os.HDC, _: *os.RECT, dwData: os.LPARAM) callconv(os.WINAPI) os.BOOL {
-    const info: *RGFW_mInfo = @ptrFromInt(@as(usize, @bitCast(dwData)));
+    const info: *MonitorInfo = @ptrFromInt(@as(usize, @bitCast(dwData)));
     if (info.hMonitor == hMonitor) return 0;
 
     info.iIndex += 1;
@@ -1593,7 +1599,7 @@ fn win32CreateMonitor(src: ?os.HMONITOR) Monitor {
 
     _ = os.GetMonitorInfoA(src, &monitorInfo);
 
-    var info = RGFW_mInfo{ .iIndex = 0, .hMonitor = src };
+    var info = MonitorInfo{ .hMonitor = src };
 
     if (os.EnumDisplayMonitors(null, null, &GetMonitorByHandle, @bitCast(@intFromPtr(&info))) != 0) {
         var dd = os.DISPLAY_DEVICEA{};
@@ -1629,7 +1635,7 @@ fn win32CreateMonitor(src: ?os.HMONITOR) Monitor {
 var RGFW_monitors: [6]Monitor = @import("std").mem.zeroes([6]Monitor);
 
 fn GetMonitorHandle(hMonitor: os.HMONITOR, _: os.HDC, _: *os.RECT, dwData: os.LPARAM) callconv(os.WINAPI) os.BOOL {
-    const info: *RGFW_mInfo = @ptrFromInt(@as(usize, @bitCast(dwData)));
+    const info: *MonitorInfo = @ptrFromInt(@as(usize, @bitCast(dwData)));
 
     if (info.iIndex >= 6) return 0;
 
@@ -1699,8 +1705,6 @@ fn RGFW_win32_initTimer() os.LARGE_INTEGER {
     return frequency.static;
 }
 
-// pub const RGFW_ALPHA = @as(c_int, 128);
-
 pub const WindowOptions = packed struct {
     /// the window doesn't have border
     no_border: bool = false,
@@ -1731,15 +1735,6 @@ pub const WindowOptions = packed struct {
     hold_mouse: bool = false,
     mouse_left: bool = false,
 };
-
-pub const RGFW_mouseLeft = 1;
-pub const RGFW_mouseMiddle = 2;
-pub const RGFW_mouseRight = 3;
-pub const RGFW_mouseScrollUp = 4;
-pub const RGFW_mouseScrollDown = 5;
-
-pub const RGFW_HOLD_MOUSE = 1 << 2;
-pub const RGFW_MOUSE_LEFT = 1 << 3;
 
 test {
     @setEvalBranchQuota(0x100000);
