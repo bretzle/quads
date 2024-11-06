@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 pub const gl = @import("gl");
 pub const callbacks = @import("callbacks.zig");
 pub const time = @import("time.zig");
+pub const math = @import("math.zig");
 
 const common = @import("platform/common.zig");
 const platform = switch (builtin.os.tag) {
@@ -205,30 +206,16 @@ pub const MouseIcons = enum(u8) {
     not_allowed = 10,
 };
 
-pub const Point = struct {
-    x: i32 = 0,
-    y: i32 = 0,
-};
-
-pub const Rect = struct {
-    x: i32 = 0,
-    y: i32 = 0,
-    w: i32 = 0,
-    h: i32 = 0,
-};
-
-pub const Area = struct {
-    w: u32 = 0,
-    h: u32 = 0,
+pub const LockState = packed struct {
+    caps: bool = false,
+    num: bool = false,
 };
 
 pub const Monitor = struct {
     name: [128]u8,
-    rect: Rect,
-    scaleX: f32,
-    scaleY: f32,
-    physW: f32,
-    physH: f32,
+    rect: math.Rect,
+    scale: math.Vec2,
+    phys: math.Vec2,
 
     pub fn get() []const Monitor {
         return platform.monitor.get();
@@ -245,17 +232,16 @@ pub const Event = struct {
     droppedFiles: [][]u8,
     droppedFilesCount: u32,
     typ: EventType,
-    point: Point,
-    keyCode: u8,
+    point: math.Point,
+    keycode: Key,
     repeat: bool,
-    inFocus: bool,
-    lockState: u8,
+    in_focus: bool,
+    lockState: LockState,
     button: MouseButton,
-    joy_button: JoystickButton,
     scroll: f64,
     joystick: u16,
-    axisesCount: u8,
-    axis: [2]Point,
+    joy_button: JoystickButton,
+    axis: [2]math.Point,
     frameTime: u64,
     frameTime2: u64,
 };
@@ -274,11 +260,11 @@ pub const Window = struct {
     src: platform.WindowSrc,
     userPtr: ?*anyopaque,
     event: Event,
-    r: Rect,
-    _lastMousePoint: Point,
+    r: math.Rect,
+    _lastMousePoint: math.Point,
     _winArgs: WindowOptions,
 
-    pub fn create(allocator: std.mem.Allocator, name: [:0]const u8, rect: Rect, args: WindowOptions) !*Window {
+    pub fn create(allocator: std.mem.Allocator, name: [:0]const u8, rect: math.Rect, args: WindowOptions) !*Window {
         const win = try allocator.create(Window);
 
         win.event.droppedFiles = try allocator.alloc([]u8, max_drops);
@@ -287,7 +273,7 @@ pub const Window = struct {
         const screenR = getScreenSize();
 
         win.r = if (args.fullscreen)
-            Rect{
+            .{
                 .x = 0,
                 .y = 0,
                 .w = @intCast(screenR.w),
@@ -296,11 +282,11 @@ pub const Window = struct {
         else
             rect;
 
-        win.event.inFocus = true;
+        win.event.in_focus = true;
         win.event.droppedFilesCount = 0;
         common.joystickCount = 0;
         win._winArgs = .{};
-        win.event.lockState = 0;
+        win.event.lockState = .{};
 
         platform.WindowSrc.init(win, name, args);
 
@@ -326,7 +312,7 @@ pub const Window = struct {
         }
     }
 
-    pub fn move(win: *Window, v: Point) void {
+    pub fn move(win: *Window, v: math.Point) void {
         win.r.x = v.x;
         win.r.y = v.y;
         platform.WindowSrc.move(win);
@@ -339,17 +325,17 @@ pub const Window = struct {
         });
     }
 
-    pub fn resize(win: *Window, a: Area) void {
+    pub fn resize(win: *Window, a: math.Area) void {
         win.r.w = @intCast(a.w);
         win.r.h = @intCast(a.h);
         platform.WindowSrc.resize(win);
     }
 
-    pub fn setMinSize(win: *Window, a: Area) void {
+    pub fn setMinSize(win: *Window, a: math.Area) void {
         win.src.minSize = a;
     }
 
-    pub fn setMaxSize(win: *Window, a: Area) void {
+    pub fn setMaxSize(win: *Window, a: math.Area) void {
         win.src.maxSize = a;
     }
 
@@ -379,11 +365,11 @@ pub const Window = struct {
         platform.WindowSrc.setName(win, name);
     }
 
-    pub fn setIcon(win: *Window, src: []const u8, a: Area, channels: i32) void {
+    pub fn setIcon(win: *Window, src: []const u8, a: math.Area, channels: i32) void {
         platform.WindowSrc.setIcon(win, src, a, channels);
     }
 
-    pub fn setMouse(win: *Window, image: []const u8, a: Area, channels: i32) void {
+    pub fn setMouse(win: *Window, image: []const u8, a: math.Area, channels: i32) void {
         platform.WindowSrc.setMouse(win, image, a, channels);
     }
 
@@ -396,7 +382,7 @@ pub const Window = struct {
     }
 
     /// Locks cursor to center of window
-    pub fn mouseHold(win: *Window, _: Area) void {
+    pub fn mouseHold(win: *Window, _: math.Area) void {
         if (win._winArgs.hold_mouse) return;
 
         win._winArgs.hide_mouse = true;
@@ -424,7 +410,7 @@ pub const Window = struct {
         callbacks.windowQuitCallback(win);
     }
 
-    pub fn getMousePoint(win: *Window) Point {
+    pub fn getMousePoint(win: *Window) math.Point {
         return platform.WindowSrc.getMousePoint(win);
     }
 
@@ -436,7 +422,7 @@ pub const Window = struct {
         }
     }
 
-    pub fn moveMouse(win: *Window, p: Point) void {
+    pub fn moveMouse(win: *Window, p: math.Point) void {
         platform.WindowSrc.moveMouse(win, p);
     }
 
@@ -463,8 +449,8 @@ pub const Window = struct {
     pub fn scaleToMonitor(win: *Window) void {
         const monitor = win.getMonitor();
         win.resize(.{
-            .w = @intFromFloat(monitor.scaleX * @as(f32, @floatFromInt(win.r.w))),
-            .h = @intFromFloat(monitor.scaleX * @as(f32, @floatFromInt(win.r.h))),
+            .w = @intFromFloat(monitor.scale[0] * @as(f32, @floatFromInt(win.r.w))),
+            .h = @intFromFloat(monitor.scale[1] * @as(f32, @floatFromInt(win.r.h))),
         });
     }
 
@@ -514,7 +500,7 @@ pub const Window = struct {
     }
 };
 
-pub fn getScreenSize() Area {
+pub fn getScreenSize() math.Area {
     return platform.getScreenSize();
 }
 
@@ -522,7 +508,7 @@ pub fn stopCheckEvents() void {
     platform.stopCheckEvents();
 }
 
-pub fn getGlobalMousePoint() Point {
+pub fn getGlobalMousePoint() math.Point {
     return platform.getGlobalMousePoint();
 }
 
@@ -552,16 +538,16 @@ pub fn keyCodeToChar(keycode: u32, shift: bool) u8 {
     return if (shift) mapCaps[keycode] else map[keycode];
 }
 
-pub fn keyCodeToCharAuto(keycode: u32, lockState: u8) u8 {
+pub fn keyCodeToCharAuto(keycode: u32, lockState: LockState) u8 {
     return keyCodeToChar(keycode, common.shouldShift(keycode, lockState));
 }
 
 pub fn isPressed(win: *Window, key: Key) bool {
-    return common.keyboard[@intFromEnum(key)].current and win.event.inFocus;
+    return common.keyboard[@intFromEnum(key)].current and win.event.in_focus;
 }
 
 pub fn wasPressed(win: *Window, key: Key) bool {
-    return common.keyboard[@intFromEnum(key)].prev and win.event.inFocus;
+    return common.keyboard[@intFromEnum(key)].prev and win.event.in_focus;
 }
 
 pub fn isHeld(win: *Window, key: Key) bool {
@@ -577,11 +563,11 @@ pub fn isClicked(win: *Window, key: Key) bool {
 }
 
 pub fn isMousePressed(win: *Window, button: MouseButton) bool {
-    return common.mouseButtons.get(button).current and win.event.inFocus;
+    return common.mouseButtons.get(button).current and win.event.in_focus;
 }
 
 pub fn wasMousePressed(win: *Window, button: MouseButton) bool {
-    return common.mouseButtons.get(button).prev and win.event.inFocus;
+    return common.mouseButtons.get(button).prev and win.event.in_focus;
 }
 
 pub fn isMouseHeld(win: *Window, button: MouseButton) bool {

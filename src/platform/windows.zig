@@ -1,14 +1,15 @@
 const std = @import("std");
+const gl = @import("gl");
 const os = @import("../os/winapi.zig");
 const parent = @import("../rgfw.zig");
-const gl = @import("gl");
 const common = @import("common.zig");
 
 const Window = parent.Window;
 const Event = parent.Event;
 const Monitor = parent.Monitor;
-const Area = parent.Area;
-const Point = parent.Point;
+const Area = parent.math.Area;
+const Point = parent.math.Point;
+const Rect = parent.math.Rect;
 
 const mouseIconSrc = [11]u32{
     os.OCR_NORMAL,
@@ -168,7 +169,6 @@ fn checkXInput(_: *Window, e: *Event) i32 {
             state.Gamepad.sThumbRY = 0;
         }
 
-        e.axisesCount = 2;
         const axis1 = Point{ .x = state.Gamepad.sThumbLX, .y = state.Gamepad.sThumbLY };
         const axis2 = Point{ .x = state.Gamepad.sThumbRX, .y = state.Gamepad.sThumbRY };
 
@@ -305,7 +305,7 @@ pub const WindowSrc = struct {
             //     return &win.event;
         }
 
-        win.event.inFocus = os.GetForegroundWindow() == win.src.window;
+        win.event.in_focus = os.GetForegroundWindow() == win.src.window;
 
         if (checkXInput(win, &win.event) != 0) return &win.event;
 
@@ -320,9 +320,9 @@ pub const WindowSrc = struct {
                     win.event.typ = .quit;
                 },
                 os.WM_ACTIVATE => {
-                    win.event.inFocus = os.LOWORD(msg.wParam) == os.WA_INACTIVE;
+                    win.event.in_focus = os.LOWORD(msg.wParam) == os.WA_INACTIVE;
 
-                    if (win.event.inFocus) {
+                    if (win.event.in_focus) {
                         win.event.typ = .focus_in;
                         parent.callbacks.focusCallback(win, true);
                     } else {
@@ -340,9 +340,9 @@ pub const WindowSrc = struct {
                     parent.callbacks.mouseNotifyCallBack(win, win.event.point, false);
                 },
                 os.WM_KEYUP, os.WM_KEYDOWN => {
-                    win.event.keyCode = @truncate(common.apiKeyCodeToRGFW(@truncate(msg.wParam)));
+                    win.event.keycode = common.apiKeyCodeToRGFW(@truncate(msg.wParam));
 
-                    common.keyboard[win.event.keyCode].prev = parent.isPressed(win, @enumFromInt(win.event.keyCode));
+                    common.keyboard[@intFromEnum(win.event.keycode)].prev = parent.isPressed(win, win.event.keycode);
 
                     const keyName = struct {
                         var static: [16]u8 = @import("std").mem.zeroes([16]u8);
@@ -365,8 +365,8 @@ pub const WindowSrc = struct {
                     }
 
                     win.event.typ = if (msg.message == os.WM_KEYUP) .key_released else .key_pressed;
-                    common.keyboard[win.event.keyCode].current = msg.message == os.WM_KEYDOWN;
-                    parent.callbacks.keyCallback(win, win.event.keyCode, std.mem.sliceTo(&win.event.keyName, 0), win.event.lockState, false);
+                    common.keyboard[@intFromEnum(win.event.keycode)].current = msg.message == os.WM_KEYDOWN;
+                    parent.callbacks.keyCallback(win, win.event.keycode, std.mem.sliceTo(&win.event.keyName, 0), win.event.lockState, false);
                 },
                 os.WM_MOUSEMOVE => if (!win._winArgs.hold_mouse) {
                     win.event.typ = .mouse_pos_changed;
@@ -863,7 +863,7 @@ pub fn makeCurrent_OpenGL(win: *Window) void {
     gl.makeProcTableCurrent(&gl_procs);
 }
 
-pub fn captureCursor(win: *Window, _: parent.Rect) void {
+pub fn captureCursor(win: *Window, _: Rect) void {
     var clipRect: os.RECT = undefined;
     _ = os.GetClientRect(win.src.window, &clipRect);
     _ = os.ClientToScreen(win.src.window, @ptrCast(&clipRect.left));
@@ -981,8 +981,8 @@ pub const monitor = struct {
         const ppiY: f32 = @floatFromInt(os.GetDeviceCaps(hdc, os.LOGPIXELSY));
         _ = os.ReleaseDC(null, hdc);
 
-        mon.physW = @as(f32, @floatFromInt(os.GetSystemMetrics(os.SM_CYSCREEN))) / ppiX;
-        mon.physH = @as(f32, @floatFromInt(os.GetSystemMetrics(os.SM_CXSCREEN))) / ppiY;
+        mon.phys[0] = @as(f32, @floatFromInt(os.GetSystemMetrics(os.SM_CYSCREEN))) / ppiX;
+        mon.phys[1] = @as(f32, @floatFromInt(os.GetSystemMetrics(os.SM_CXSCREEN))) / ppiY;
 
         return mon;
     }

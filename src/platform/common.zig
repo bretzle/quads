@@ -9,9 +9,6 @@ const Monitor = parent.Monitor;
 
 const KeyState = packed struct { current: bool = false, prev: bool = false };
 
-const RGFW_CAPSLOCK = 1;
-const RGFW_NUMLOCK = 2;
-
 pub var root: ?*Window = null;
 pub var eventWindow: Window = undefined;
 
@@ -95,32 +92,32 @@ const keycodes = [337]Key{
 };
 
 pub fn updateLockState(win: *Window, capital: bool, numlock: bool) void {
-    if (capital and win.event.lockState & RGFW_CAPSLOCK == 0)
-        win.event.lockState |= RGFW_CAPSLOCK
-    else if (!capital and win.event.lockState & RGFW_CAPSLOCK != 0)
-        win.event.lockState ^= RGFW_CAPSLOCK;
+    if (capital and !win.event.lockState.caps)
+        win.event.lockState.caps = true
+    else if (!capital and win.event.lockState.caps)
+        win.event.lockState.caps = !win.event.lockState.caps;
 
-    if (numlock and win.event.lockState & RGFW_NUMLOCK == 0)
-        win.event.lockState |= RGFW_NUMLOCK
-    else if (!numlock and win.event.lockState & RGFW_NUMLOCK != 0)
-        win.event.lockState ^= RGFW_NUMLOCK;
+    if (numlock and !win.event.lockState.num)
+        win.event.lockState.num = true
+    else if (!numlock and win.event.lockState.num)
+        win.event.lockState.num = !win.event.lockState.num;
 }
 
 /// returns true if the key should be shifted
-pub fn shouldShift(keycode: u32, lockState: u8) bool {
+pub fn shouldShift(keycode: u32, lockState: parent.LockState) bool {
     const help = struct {
         inline fn xor(x: bool, y: bool) bool {
             return (x and !y) or (y and !x);
         }
     };
 
-    const caps4caps = (lockState & RGFW_CAPSLOCK != 0) and ((keycode >= @intFromEnum(Key.a)) and (keycode <= @intFromEnum(Key.z)));
+    const caps4caps = lockState.caps and ((keycode >= @intFromEnum(Key.a)) and (keycode <= @intFromEnum(Key.z)));
     const should_shift = help.xor((keyboard[@intFromEnum(Key.shift_l)].current or keyboard[@intFromEnum(Key.shift_r)].current), caps4caps);
 
     return should_shift;
 }
 
-pub fn apiKeyCodeToRGFW(keycode: u32) u32 {
-    _ = std.meta.intToEnum(Key, keycode) catch return 0;
-    return @intFromEnum(keycodes[keycode]);
+pub fn apiKeyCodeToRGFW(keycode: u32) Key {
+    _ = std.meta.intToEnum(Key, keycode) catch return .null;
+    return keycodes[keycode];
 }

@@ -1,23 +1,22 @@
 const rgfw = @import("rgfw.zig");
+const math = @import("math.zig");
 
 const Window = rgfw.Window;
-const Rect = rgfw.Rect;
-const Point = rgfw.Point;
 const MouseButton = rgfw.MouseButton;
 const JoystickButton = rgfw.JoystickButton;
 
-pub const WindowMoveFn = *const fn (win: *Window, r: Rect) void;
-pub const WindowResizeFn = *const fn (win: *Window, r: Rect) void;
+pub const WindowMoveFn = *const fn (win: *Window, r: math.Rect) void;
+pub const WindowResizeFn = *const fn (win: *Window, r: math.Rect) void;
 pub const WindowQuitFn = *const fn (win: *Window) void;
 pub const FocusFn = *const fn (win: *Window, focus: bool) void;
-pub const MouseNotifyFn = *const fn (win: *Window, pos: Point, status: bool) void;
-pub const MousePosFn = *const fn (win: *Window, pos: Point) void;
-pub const DndInitFn = *const fn (win: *Window, pos: Point) void;
+pub const MouseNotifyFn = *const fn (win: *Window, pos: math.Point, status: bool) void;
+pub const MousePosFn = *const fn (win: *Window, pos: math.Point) void;
+pub const DndInitFn = *const fn (win: *Window, pos: math.Point) void;
 pub const WindowRefreshFn = *const fn (win: *Window) void;
-pub const KeyFn = *const fn (win: *Window, keycode: u32, name: []const u8, lock: u8, pressed: bool) void;
+pub const KeyFn = *const fn (win: *Window, keycode: rgfw.Key, name: []const u8, lock: rgfw.LockState, pressed: bool) void;
 pub const MouseButtonFn = *const fn (win: *Window, button: MouseButton, scroll: f64, pressed: bool) void;
 pub const JoyButtonFn = *const fn (win: *Window, joystick: u16, button: JoystickButton, pressed: bool) void;
-pub const JoyAxisFn = *const fn (win: *Window, joystick: u16, axis: [2]Point) void;
+pub const JoyAxisFn = *const fn (win: *Window, joystick: u16, axis: [2]math.Point) void;
 pub const DndFn = *const fn (win: *Window, dropped_files: [][]u8, count: u32) void;
 
 pub var windowMoveCallback: WindowMoveFn = stubs.windowMove;
@@ -35,18 +34,18 @@ pub var joyAxisCallback: JoyAxisFn = stubs.joyAxis;
 pub var dndCallback: DndFn = stubs.dnd;
 
 const stubs = struct {
-    fn windowMove(_: *Window, _: Rect) void {}
-    fn windowResize(_: *Window, _: Rect) void {}
+    fn windowMove(_: *Window, _: math.Rect) void {}
+    fn windowResize(_: *Window, _: math.Rect) void {}
     fn windowQuit(_: *Window) void {}
     fn focus(_: *Window, _: bool) void {}
-    fn mouseNotify(_: *Window, _: Point, _: bool) void {}
-    fn mousePos(_: *Window, _: Point) void {}
-    fn dndInit(_: *Window, _: Point) void {}
+    fn mouseNotify(_: *Window, _: math.Point, _: bool) void {}
+    fn mousePos(_: *Window, _: math.Point) void {}
+    fn dndInit(_: *Window, _: math.Point) void {}
     fn windowRefresh(_: *Window) void {}
-    fn key(_: *Window, _: u32, _: []const u8, _: u8, _: bool) void {}
+    fn key(_: *Window, _: rgfw.Key, _: []const u8, _: rgfw.LockState, _: bool) void {}
     fn mouseButton(_: *Window, _: MouseButton, _: f64, _: bool) void {}
     fn joyButton(_: *Window, _: u16, _: JoystickButton, _: bool) void {}
-    fn joyAxis(_: *Window, _: u16, _: [2]Point) void {}
+    fn joyAxis(_: *Window, _: u16, _: [2]math.Point) void {}
     fn dnd(_: *Window, _: [][]u8, _: u32) void {}
 };
 
