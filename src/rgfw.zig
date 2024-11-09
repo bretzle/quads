@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const gl = @import("gl");
 pub const callbacks = @import("callbacks.zig");
 pub const time = @import("time.zig");
 pub const math = @import("math.zig");
@@ -428,7 +427,7 @@ pub const Window = struct {
     }
 
     pub fn shouldClose(win: *Window) bool {
-        return win.event.typ == .quit or isPressed(win, .escape);
+        return win.event.typ == .quit;
     }
 
     pub fn isFullscreen(win: *Window) bool {

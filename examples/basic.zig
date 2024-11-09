@@ -1,11 +1,14 @@
 const std = @import("std");
 const rgfw = @import("rgfw");
-// const gl = rgfw.gl;
 const gfx = rgfw.gfx;
 
-const allocator = std.heap.page_allocator;
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
 
-const icon = [4 * 3 * 3]u8{ 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF };
+const Vertex = extern struct {
+    pos: [2]f32,
+    color: [4]f32,
+};
 
 pub fn main() !void {
     const win = try rgfw.Window.create(allocator, "name", .{ .x = 500, .y = 500, .w = 500, .h = 500 }, .{ .center = true });
@@ -13,41 +16,73 @@ pub fn main() !void {
 
     win.makeCurrent();
 
-    try gfx.init(allocator, win);
-    defer gfx.deinit(allocator);
+    gfx.init(allocator, .{ win.r.w, win.r.h });
+    defer gfx.deinit();
 
-    // win.setMinSize(.{ .w = 100, .h = 100 });
-    // win.setMaxSize(.{ .w = 1000, .h = 1000 });
+    const indices = [3]u16{ 0, 1, 2 };
+    const vertices = [3]Vertex{
+        .{ .pos = .{ -0.5, -0.5 }, .color = .{ 1, 0, 0, 1 } },
+        .{ .pos = .{ 0.5, -0.5 }, .color = .{ 0, 1, 0, 1 } },
+        .{ .pos = .{ 0.0, 0.5 }, .color = .{ 0, 0, 1, 1 } },
+    };
 
-    // win.setIcon(&icon, .{ .w = 3, .h = 3 }, 4);
-    // win.setMouse(&icon, .{ .w = 3, .h = 3 }, 4);
+    const vertex_buffer = gfx.newBuffer(.vertex, .immutable, &vertices);
+    const index_buffer = gfx.newBuffer(.index, .immutable, &indices);
 
-    const tex = gfx.createTexture(&icon, .{ .w = 3, .h = 3 }, 4);
+    const bindings = gfx.Bindings{
+        .vertex_buffers = .{ vertex_buffer, .invalid, .invalid, .invalid },
+        .index_buffer = index_buffer,
+    };
 
-    var running = true;
-    while (running) {
+    const shader = try gfx.newShader(vertex, fragment, .{});
+
+    const pipeline = try gfx.newPipeline(
+        &.{.{}},
+        &.{
+            .{ .name = "in_pos", .format = .float2 },
+            .{ .name = "in_color", .format = .float4 },
+        },
+        shader,
+        .{},
+    );
+
+    while (!win.shouldClose()) {
         while (win.checkEvent()) |ev| {
-            switch (ev.typ) {
-                .quit => running = false,
-                .window_resized => gfx.updateSize(.{ .w = @intCast(win.r.w), .h = @intCast(win.r.h) }),
-                else => {},
-            }
+            if (ev.typ == .window_resized) gfx.canvas_size = .{ @intCast(win.r.w), @intCast(win.r.h) };
         }
 
-        gfx.drawTriangle(
-            .{
-                .{ 20, win.r.h - 20 },
-                .{ win.r.w - 20, win.r.h - 20 },
-                .{ @divTrunc(win.r.w - 40, 2), 20 },
-            },
-            gfx.rgb(255, 255, 0),
-        );
+        gfx.beginDefaultPass(null);
 
-        gfx.args.texture = tex;
-        gfx.drawRect(.{ 0, 0, 30, 300 }, gfx.rgb(255, 255, 255));
-        gfx.args.texture = 1;
+        gfx.applyPipeline(pipeline);
+        gfx.applyBindings(&bindings);
+        gfx.draw(0, 3, 1);
+        gfx.endRenderPass();
 
-        gfx.clear(gfx.rgb(0, 0, 0));
+        gfx.commitFrame();
+
         win.swapBuffers();
     }
 }
+
+const vertex =
+    \\#version 330
+    \\
+    \\in vec2 in_pos;
+    \\in vec4 in_color;
+    \\out vec4 color;
+    \\
+    \\void main() {
+    \\  gl_Position = vec4(in_pos, 0, 1);
+    \\  color = in_color;
+    \\}
+;
+
+const fragment =
+    \\#version 330
+    \\
+    \\in vec4 color;
+    \\
+    \\void main() {
+    \\  gl_FragColor = color;
+    \\}
+;
