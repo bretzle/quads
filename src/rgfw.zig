@@ -293,6 +293,7 @@ pub const Window = struct {
         return win;
     }
 
+    /// close the window
     pub fn close(win: *Window, allocator: std.mem.Allocator) void {
         platform.WindowSrc.close(win, allocator);
     }
@@ -301,10 +302,12 @@ pub const Window = struct {
         return platform.WindowSrc.checkEvent(win);
     }
 
+    /// sleep until window gets an event or the timer ends (defined by OS)
     pub fn eventWait(win: *Window, wait: Wait) void {
         platform.WindowSrc.eventWait(win, wait);
     }
 
+    /// check all the events until there are none left, this should only be used if you're using callbacks only
     pub fn checkEvents(win: *Window, wait: Wait) void {
         win.eventWait(wait);
         while ((win.checkEvent() != null) and !win.shouldClose()) {
@@ -312,12 +315,14 @@ pub const Window = struct {
         }
     }
 
+    /// moves window to a given point
     pub fn move(win: *Window, v: math.Point) void {
         win.r.x = v.x;
         win.r.y = v.y;
         platform.WindowSrc.move(win);
     }
 
+    /// move to a specific monitor
     pub fn moveToMonitor(win: *Window, m: Monitor) void {
         win.move(.{
             .x = m.rect.x + win.r.x,
@@ -325,42 +330,51 @@ pub const Window = struct {
         });
     }
 
+    /// resize window to a current size/area
     pub fn resize(win: *Window, a: math.Area) void {
         win.r.w = @intCast(a.w);
         win.r.h = @intCast(a.h);
         platform.WindowSrc.resize(win);
     }
 
+    /// set the minimum size a user can shrink a window to a given size/area
     pub fn setMinSize(win: *Window, a: math.Area) void {
         win.src.minSize = a;
     }
 
+    /// set the maximum size a user can extend a window to a given size/area
     pub fn setMaxSize(win: *Window, a: math.Area) void {
         win.src.maxSize = a;
     }
 
+    /// maximize the window
     pub fn maximize(win: *Window) void {
         const screen = getScreenSize();
         win.move(.{});
         win.resize(screen);
     }
 
+    /// minimize the window (in taskbar (per OS))
     pub fn minimize(win: *Window) void {
         platform.WindowSrc.minimize(win);
     }
 
+    /// restore the window from minimized (per OS)
     pub fn restore(win: *Window) void {
         platform.WindowSrc.restore(win);
     }
 
+    /// if the window should have a border or not (borderless) based on bool value of `border`
     pub fn setBorder(win: *Window, border: bool) void {
         platform.WindowSrc.setBorder(win, border);
     }
 
+    /// turn on / off dnd (WindowOptions.allow_dnd stil must be passed to the window)
     pub fn setDND(win: *Window, allow: bool) void {
         platform.WindowSrc.setDND(win, allow);
     }
 
+    /// rename window to a given string
     pub fn setName(win: *Window, name: [:0]const u8) void {
         platform.WindowSrc.setName(win, name);
     }
@@ -390,6 +404,7 @@ pub const Window = struct {
         win.moveMouse(.{ .x = win.r.x + @divTrunc(win.r.w, 2), .y = win.r.y + @divTrunc(win.r.h, 2) });
     }
 
+    /// stop holding the mouse and let it move freely
     pub fn mouseUnhold(win: *Window) void {
         if (win._winArgs.hold_mouse) {
             win._winArgs.hold_mouse = false;
@@ -397,10 +412,12 @@ pub const Window = struct {
         }
     }
 
+    /// hide the window
     pub fn hide(win: *Window) void {
         platform.WindowSrc.hide(win);
     }
 
+    /// show the window
     pub fn show(win: *Window) void {
         platform.WindowSrc.show(win);
     }
@@ -410,10 +427,12 @@ pub const Window = struct {
         callbacks.windowQuitCallback(win);
     }
 
+    /// where the mouse is on the window
     pub fn getMousePoint(win: *Window) math.Point {
         return platform.WindowSrc.getMousePoint(win);
     }
 
+    /// show the mouse or hide the mouse
     pub fn showMouse(win: *Window, s: bool) void {
         if (s) {
             win.setMouseDefault();
@@ -422,30 +441,37 @@ pub const Window = struct {
         }
     }
 
+    /// move the mouse to a set x, y
     pub fn moveMouse(win: *Window, p: math.Point) void {
         platform.WindowSrc.moveMouse(win, p);
     }
 
+    /// if the window should close
     pub fn shouldClose(win: *Window) bool {
         return win.event.typ == .quit;
     }
 
+    /// if window is fullscreen
     pub fn isFullscreen(win: *Window) bool {
         return platform.WindowSrc.isFullscreen(win);
     }
 
+    /// if window is hidden
     pub fn isHidden(win: *Window) bool {
         return platform.WindowSrc.isHidden(win);
     }
 
+    /// if window is minimized
     pub fn isMinimized(win: *Window) bool {
         return platform.WindowSrc.isMinimized(win);
     }
 
+    /// if window is maximized
     pub fn isMaximized(win: *Window) bool {
         return platform.WindowSrc.isMaximized(win);
     }
 
+    /// scale the window to the monitor, this is run by default if the user uses the arg `WindowOptions.scale_to_monitor` during window creation
     pub fn scaleToMonitor(win: *Window) void {
         const monitor = win.getMonitor();
         win.resize(.{
@@ -454,6 +480,7 @@ pub const Window = struct {
         });
     }
 
+    /// get the struct of the window's monitor
     pub fn getMonitor(win: *Window) Monitor {
         return platform.WindowSrc.getMonitor(win);
     }
@@ -504,6 +531,7 @@ pub fn getScreenSize() math.Area {
     return platform.getScreenSize();
 }
 
+/// `Window.eventWait` to stop waiting, to be ran from another thread
 pub fn stopCheckEvents() void {
     platform.stopCheckEvents();
 }

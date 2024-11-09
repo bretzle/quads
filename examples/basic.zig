@@ -46,10 +46,14 @@ pub fn main() !void {
         .{},
     );
 
+    win.mouseHold(undefined);
+
     while (!win.shouldClose()) {
         while (win.checkEvent()) |ev| {
             if (ev.typ == .window_resized) gfx.canvas_size = .{ @intCast(win.r.w), @intCast(win.r.h) };
         }
+
+        win.moveMouse(.{ .x = win.r.x + 200, .y = win.r.y + 200 });
 
         gfx.beginDefaultPass(null);
 

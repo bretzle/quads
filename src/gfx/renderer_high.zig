@@ -2,7 +2,6 @@ const std = @import("std");
 const gfx = @import("common.zig");
 const low = @import("renderer_low.zig");
 const math = @import("../math.zig");
-const time = @import("../rgfw.zig").time;
 
 const Mat4 = math.Mat4;
 
@@ -138,7 +137,6 @@ var draw_calls_bindings: std.ArrayList(gfx.Bindings) = undefined;
 var draw_calls_count: usize = 0;
 
 var state: GlState = undefined;
-var start_time: u64 = 0;
 
 var white_texture: gfx.TextureId = .invalid;
 var batch_vertex_buffer: std.ArrayList(Vertex) = undefined;
@@ -159,7 +157,6 @@ pub fn init(alloc: std.mem.Allocator, size: [2]i32) !void {
     state.model_stack.appendAssumeCapacity(Mat4.identity);
     draw_calls = std.ArrayList(DrawCall).init(allocator);
     draw_calls_bindings = std.ArrayList(gfx.Bindings).init(allocator);
-    start_time = time.getTime();
 
     batch_vertex_buffer = std.ArrayList(Vertex).init(allocator);
     batch_index_buffer = std.ArrayList(u16).init(allocator);

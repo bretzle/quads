@@ -1,0 +1,16 @@
+- [ ] handle changing graphics contexts (threadsafety...)
+- [ ] setup file structure for multiple backends
+- [ ] file drag n drop
+- [ ] clipboard...
+- [ ] audio
+- [ ] more pixel types (at least support ones required for libretro)
+- [ ] low level renderer still missing crucial things (viewport, scissor, texture updates)
+- [ ] document low level renderer
+- [ ] high level renderer doesn't handle indices correctly
+- [ ] low level bitmap text rendering
+- [ ] darkmode title bar (windows only)
+- [ ] cleanup and improve build.zig (compile options)
+- [ ] add readme and port old examples
+- [ ] simple gui (maybe raygui?)
+- [ ] compute shaders...
+- [ ] rework event system

@@ -4,10 +4,12 @@ const platform = switch (builtin.os.tag) {
     else => unreachable,
 };
 
+/// get time in seconds
 pub fn getTime() u64 {
     return platform.time.getTime();
 }
 
+/// get time in nanoseconds
 pub fn getTimeNS() u64 {
     return platform.time.getTimeNS();
 }
