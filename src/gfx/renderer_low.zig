@@ -66,8 +66,6 @@ var cache: Cache = .{};
 
 var default_framebuffer: u32 = 0;
 
-pub var canvas_size: [2]i32 = undefined;
-
 var arena: std.heap.ArenaAllocator = undefined;
 var allocator: std.mem.Allocator = undefined;
 
@@ -83,7 +81,7 @@ pub fn init(alloc: std.mem.Allocator, size: [2]i32) void {
     gl.GenVertexArrays(1, @ptrCast(&vao));
     gl.BindVertexArray(vao);
 
-    canvas_size = size;
+    gfx.canvas_size = size;
     arena = std.heap.ArenaAllocator.init(alloc);
     allocator = arena.allocator();
     shaders = meta.SimplePool(GlShader, gfx.ShaderId).create(allocator);
@@ -97,6 +95,8 @@ pub fn deinit() void {
     arena.deinit();
 }
 
+/// slice: []const type
+/// empty: .{ type, size }
 pub fn newBuffer(typ: gfx.BufferType, usage: gfx.BufferUsage, data: anytype) gfx.BufferId {
     const gl_target = typ.gl();
     const gl_usage = usage.gl();
@@ -109,6 +109,7 @@ pub fn newBuffer(typ: gfx.BufferType, usage: gfx.BufferUsage, data: anytype) gfx
             bytes = std.mem.sliceAsBytes(data);
             break :blk .{ bytes.?.len, bytes.?.len / data.len };
         },
+        .Struct => .{ data[1] * @sizeOf(data[0]), @sizeOf(data[0]) },
         else => @compileError("unsupported: " ++ @typeName(@TypeOf(data))),
     };
 
@@ -138,6 +139,32 @@ pub fn newBuffer(typ: gfx.BufferType, usage: gfx.BufferUsage, data: anytype) gfx
         .size = size,
         .index_type = index_type,
     });
+}
+
+pub fn bufferUpdate(buffer: gfx.BufferId, data: anytype) void {
+    switch (@typeInfo(@TypeOf(data))) {
+        .Pointer => |info| {
+            meta.compileAssert(info.size == .One or info.size == .Slice, "data should be a slice got: {s}", .{@typeName(@TypeOf(data))});
+        },
+        else => @compileError("unsupported: " ++ @typeName(@TypeOf(data))),
+    }
+
+    const buf = buffers.get(buffer);
+
+    const elem_size = @sizeOf(std.meta.Child(@TypeOf(data)));
+    const size = data.len * elem_size;
+    std.debug.assert(size <= buf.size);
+
+    if (buf.typ == .index) {
+        std.debug.assert(buf.index_type != null);
+        std.debug.assert(elem_size == buf.index_type.?);
+    }
+
+    const gl_target = buf.typ.gl();
+    cache.storeBufferBinding(gl_target);
+    cache.bindBuffer(gl_target, buf.raw, buf.index_type);
+    gl.BufferSubData(gl_target, 0, @intCast(size), @ptrCast(data));
+    cache.restoreBufferBinding(gl_target);
 }
 
 pub fn newShader(vertex: [:0]const u8, fragment: [:0]const u8, details: gfx.ShaderMeta) !gfx.ShaderId {
@@ -450,8 +477,8 @@ pub fn beginPass(pass: ?gfx.PassId, action: gfx.PassAction) void {
         h = @intCast(textures.get(texture).params.height);
     } else {
         framebuffer = default_framebuffer;
-        w = canvas_size[0];
-        h = canvas_size[1];
+        w = gfx.canvas_size[0];
+        h = gfx.canvas_size[1];
     }
 
     gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer);

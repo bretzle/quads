@@ -1,6 +1,8 @@
 const std = @import("std");
 const g = @import("gl");
 
+pub var canvas_size: [2]i32 = undefined;
+
 pub const BufferId = enum(u32) { invalid, _ };
 
 pub const Bindings = struct {

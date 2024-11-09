@@ -129,6 +129,20 @@ pub const Mat4 = extern struct {
         return ret;
     }
 
+    /// creates an orthogonal projection matrix.
+    /// `left`, `right`, `bottom` and `top` are the borders of the screen whereas `near` and `far` define the
+    /// distance of the near and far clipping planes.
+    pub fn ortho(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) Self {
+        var result = Self.identity;
+        result.data[0][0] = 2 / (right - left);
+        result.data[1][1] = 2 / (top - bottom);
+        result.data[2][2] = -2 / (far - near);
+        result.data[3][0] = -(right + left) / (right - left);
+        result.data[3][1] = -(top + bottom) / (top - bottom);
+        result.data[3][2] = -(far + near) / (far - near);
+        return result;
+    }
+
     /// creates a rotation matrix around a certain axis.
     pub fn rotation(axis: Vec3, angle: f32) Self {
         const x, const y, const z = normalize(axis);

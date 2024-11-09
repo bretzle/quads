@@ -1,6 +1,6 @@
 const std = @import("std");
 const rgfw = @import("rgfw");
-const gfx = rgfw.gfx;
+const gfx = rgfw.gfx.low;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
