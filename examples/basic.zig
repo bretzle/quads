@@ -1,6 +1,7 @@
 const std = @import("std");
 const rgfw = @import("rgfw");
-const gl = rgfw.gl;
+// const gl = rgfw.gl;
+const gfx = rgfw.gfx;
 
 const allocator = std.heap.page_allocator;
 
@@ -12,23 +13,41 @@ pub fn main() !void {
 
     win.makeCurrent();
 
-    win.setMinSize(.{ .w = 100, .h = 100 });
-    win.setMaxSize(.{ .w = 1000, .h = 1000 });
+    try gfx.init(allocator, win);
+    defer gfx.deinit(allocator);
 
-    win.setIcon(&icon, .{ .w = 3, .h = 3 }, 4);
-    win.setMouse(&icon, .{ .w = 3, .h = 3 }, 4);
+    // win.setMinSize(.{ .w = 100, .h = 100 });
+    // win.setMaxSize(.{ .w = 1000, .h = 1000 });
+
+    // win.setIcon(&icon, .{ .w = 3, .h = 3 }, 4);
+    // win.setMouse(&icon, .{ .w = 3, .h = 3 }, 4);
+
+    const tex = gfx.createTexture(&icon, .{ .w = 3, .h = 3 }, 4);
 
     var running = true;
     while (running) {
         while (win.checkEvent()) |ev| {
-            if (ev.typ == .quit) running = false;
-
-            // std.debug.print("{any}\n", .{ev});
+            switch (ev.typ) {
+                .quit => running = false,
+                .window_resized => gfx.updateSize(.{ .w = @intCast(win.r.w), .h = @intCast(win.r.h) }),
+                else => {},
+            }
         }
 
-        gl.ClearColor(0x00, 0x00, 0x00, 0xFF);
-        gl.Clear(gl.COLOR_BUFFER_BIT);
+        gfx.drawTriangle(
+            .{
+                .{ 20, win.r.h - 20 },
+                .{ win.r.w - 20, win.r.h - 20 },
+                .{ @divTrunc(win.r.w - 40, 2), 20 },
+            },
+            gfx.rgb(255, 255, 0),
+        );
 
+        gfx.args.texture = tex;
+        gfx.drawRect(.{ 0, 0, 30, 300 }, gfx.rgb(255, 255, 255));
+        gfx.args.texture = 1;
+
+        gfx.clear(gfx.rgb(0, 0, 0));
         win.swapBuffers();
     }
 }

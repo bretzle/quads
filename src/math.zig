@@ -145,4 +145,10 @@ pub const Mat4 = extern struct {
             },
         };
     }
+
+    pub inline fn get(self: *const Self, comptime idx: comptime_int) f32 {
+        const row = idx / 4;
+        const col = idx % 4;
+        return self.data[row][col];
+    }
 };

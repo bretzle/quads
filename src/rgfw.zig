@@ -5,6 +5,7 @@ pub const gl = @import("gl");
 pub const callbacks = @import("callbacks.zig");
 pub const time = @import("time.zig");
 pub const math = @import("math.zig");
+pub const gfx = @import("gfx.zig");
 
 const common = @import("platform/common.zig");
 const platform = switch (builtin.os.tag) {
@@ -589,6 +590,8 @@ pub fn registerJoystickF(_: *Window, _: [:0]const u8) u16 {
 pub fn isPressedJS(_: *Window, controller: u16, button: JoystickButton) bool {
     return common.jsPressed[controller].get(button);
 }
+
+pub const getProcAddress = platform.getProcAddress;
 
 test {
     @setEvalBranchQuota(0x100000);

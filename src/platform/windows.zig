@@ -67,8 +67,6 @@ var wglCreateContextAttribsARB: WglCreateContextAttribsARB = null;
 var XInputGetStateSRC: ?*const fn (os.DWORD, *os.STATE) callconv(os.WINAPI) os.DWORD = null;
 var XInputGetKeystrokeSRC: ?*const fn (os.DWORD, os.DWORD, *os.XINPUT_KEYSTROKE) callconv(os.WINAPI) os.DWORD = null;
 
-var gl_procs: gl.ProcTable = undefined;
-
 const initFormatAttribs = &[_]i32{
     WGL_DRAW_TO_WINDOW_ARB, 1,
     WGL_ACCELERATION_ARB,   WGL_FULL_ACCELERATION_ARB,
@@ -661,8 +659,6 @@ pub const WindowSrc = struct {
             _ = os.ReleaseDC(win.src.window, win.src.hdc);
             win.src.hdc = os.GetDC(win.src.window) orelse unreachable;
             _ = os.wglMakeCurrent(win.src.hdc, win.src.ctx);
-
-            std.debug.assert(gl_procs.init(getProcAddress));
         }
 
         _ = os.DestroyWindow(dummyWin);
@@ -860,7 +856,6 @@ pub fn getGlobalMousePoint() Point {
 
 pub fn makeCurrent_OpenGL(win: *Window) void {
     _ = os.wglMakeCurrent(win.src.hdc, win.src.ctx);
-    gl.makeProcTableCurrent(&gl_procs);
 }
 
 pub fn captureCursor(win: *Window, _: Rect) void {
