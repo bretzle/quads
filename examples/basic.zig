@@ -1,6 +1,7 @@
 const std = @import("std");
 const rgfw = @import("rgfw");
 const gfx = rgfw.gfx.low;
+const text = rgfw.gfx.text;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
@@ -46,22 +47,21 @@ pub fn main() !void {
         .{},
     );
 
-    win.mouseHold(undefined);
+    try text.init(allocator);
 
     while (!win.shouldClose()) {
         while (win.checkEvent()) |ev| {
             if (ev.typ == .window_resized) gfx.canvas_size = .{ @intCast(win.r.w), @intCast(win.r.h) };
         }
 
-        win.moveMouse(.{ .x = win.r.x + 200, .y = win.r.y + 200 });
+        text.write("Hello, world!", 20, 20, 2);
 
         gfx.beginDefaultPass(null);
-
         gfx.applyPipeline(pipeline);
         gfx.applyBindings(&bindings);
         gfx.draw(0, 3, 1);
         gfx.endRenderPass();
-
+        text.render();
         gfx.commitFrame();
 
         win.swapBuffers();

@@ -408,7 +408,7 @@ pub const TextureFormat = enum {
             .rgba16f => .{ g.RGBA16F, g.RGBA, g.FLOAT },
             .depth => .{ g.DEPTH_COMPONENT16, g.DEPTH_COMPONENT, g.UNSIGNED_SHORT },
             .depth32 => .{ g.DEPTH_COMPONENT, g.DEPTH_COMPONENT, g.FLOAT },
-            .alpha => .{ g.ALPHA, g.ALPHA, g.UNSIGNED_BYTE },
+            .alpha => .{ g.R8, g.RED, g.UNSIGNED_BYTE },
         };
     }
 };

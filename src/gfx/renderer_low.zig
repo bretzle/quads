@@ -144,7 +144,7 @@ pub fn newBuffer(typ: gfx.BufferType, usage: gfx.BufferUsage, data: anytype) gfx
 pub fn bufferUpdate(buffer: gfx.BufferId, data: anytype) void {
     switch (@typeInfo(@TypeOf(data))) {
         .Pointer => |info| {
-            meta.compileAssert(info.size == .One or info.size == .Slice, "data should be a slice got: {s}", .{@typeName(@TypeOf(data))});
+            meta.compileAssert(info.size == .Slice, "data should be a slice got: {s}", .{@typeName(@TypeOf(data))});
         },
         else => @compileError("unsupported: " ++ @typeName(@TypeOf(data))),
     }
@@ -339,6 +339,10 @@ pub fn newTexture(access: gfx.TextureAccess, params: gfx.TextureParams, source: 
     gl.GenTextures(1, @ptrCast(&texture));
     cache.bindTexture(0, kind, texture);
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+    if (params.format == .alpha) {
+        gl.TexParameteri(kind, gl.TEXTURE_SWIZZLE_A, gl.RED);
+    }
 
     switch (T) {
         void => {
@@ -665,6 +669,11 @@ pub fn clear(color: ?[4]f32, depth: ?f32, stencil: ?i32) void {
     if (bits != 0) {
         gl.Clear(bits);
     }
+}
+
+pub fn checkError() void {
+    const e = gl.GetError();
+    if (e != 0) std.debug.panic("gl error: {x}", .{e});
 }
 
 //
