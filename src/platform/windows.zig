@@ -676,6 +676,8 @@ pub const WindowSrc = struct {
             win.showMouse(false);
         }
 
+        _ = os.DwmSetWindowAttribute(win.src.window, os.DWMWA_USE_IMMERSIVE_DARK_MODE, &@as(i32, 1), @sizeOf(i32));
+        _ = os.DwmSetWindowAttribute(win.src.window, os.DWMWA_WINDOW_CORNER_PREFERENCE, &@as(i32, 3), @sizeOf(i32));
         _ = os.ShowWindow(win.src.window, os.SW_SHOWNORMAL);
 
         if (common.root == null) {

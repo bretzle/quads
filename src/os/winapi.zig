@@ -235,7 +235,7 @@ pub extern "user32" fn ReleaseDC(hWnd: ?HWND, hDC: ?HDC) callconv(WINAPI) INT;
 pub const DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
 pub const DWMWA_WINDOW_CORNER_PREFERENCE = 33;
 
-pub extern "dwmapi" fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: DWORD, pvAttribute: LPCVOID, cbAttribute: DWORD) callconv(WINAPI) HRESULT;
+pub extern "dwmapi" fn DwmSetWindowAttribute(hwnd: ?HWND, dwAttribute: DWORD, pvAttribute: LPCVOID, cbAttribute: DWORD) callconv(WINAPI) HRESULT;
 
 pub extern "user32" fn LoadIconA(hInstance: ?HINSTANCE, lpIconName: ?[*:0]const u8) callconv(WINAPI) ?HICON;
 

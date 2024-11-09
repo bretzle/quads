@@ -391,6 +391,33 @@ pub fn newTexture(access: gfx.TextureAccess, params: gfx.TextureParams, source: 
     });
 }
 
+pub fn updateTexture(texture: gfx.TextureId, bytes: []const u8) void {
+    const params = textures.get(texture).params;
+    updateTexturePart(texture, 0, 0, params.width, params.height, bytes);
+}
+
+pub fn updateTexturePart(texture: gfx.TextureId, x: i32, y: i32, width: u32, height: u32, bytes: []const u8) void {
+    const tex = textures.get(texture);
+
+    std.debug.assert(tex.params.format.size(width, height) == bytes.len);
+    std.debug.assert(@as(u32, @bitCast(x)) +% width <= tex.params.width);
+    std.debug.assert(@as(u32, @bitCast(y)) +% height <= tex.params.height);
+
+    cache.storeTextureBinding(0);
+    cache.bindTexture(0, tex.params.kind.gl(), tex.raw);
+
+    gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    if (tex.params.format == .alpha) {
+        gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_A, gl.RED);
+    }
+
+    _, const format, const pixel_type = tex.params.format.gl();
+
+    gl.TexSubImage2D(gl.TEXTURE_2D, 0, x, y, @intCast(width), @intCast(height), format, pixel_type, @ptrCast(bytes));
+
+    cache.restoreTextureBinding(0);
+}
+
 pub fn newRenderPass(color_img: gfx.TextureId, depth_img: ?gfx.TextureId) !gfx.PassId {
     return newRenderPassMrt(&.{color_img}, null, depth_img);
 }
@@ -669,6 +696,14 @@ pub fn clear(color: ?[4]f32, depth: ?f32, stencil: ?i32) void {
     if (bits != 0) {
         gl.Clear(bits);
     }
+}
+
+pub fn applyViewport(x: i32, y: i32, w: i32, h: i32) void {
+    gl.Viewport(x, y, w, h);
+}
+
+pub fn applyScissor(x: i32, y: i32, w: i32, h: i32) void {
+    gl.Scissor(x, y, w, h);
 }
 
 pub fn checkError() void {
