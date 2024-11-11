@@ -1,11 +1,11 @@
 const std = @import("std");
-const parent = @import("../rgfw.zig");
+const quads = @import("../quads.zig");
 
-const Window = parent.Window;
-const Key = parent.Key;
-const JoystickButton = parent.JoystickButton;
-const MouseButton = parent.MouseButton;
-const Monitor = parent.Monitor;
+const Window = quads.Window;
+const Key = quads.Key;
+const JoystickButton = quads.JoystickButton;
+const MouseButton = quads.MouseButton;
+const Monitor = quads.Monitor;
 
 const KeyState = packed struct { current: bool = false, prev: bool = false };
 
@@ -20,7 +20,7 @@ pub var mouseButtons: std.EnumArray(MouseButton, KeyState) = std.EnumArray(Mouse
 pub var keyboard: [100]KeyState = .{.{}} ** 100;
 pub var monitors: [6]Monitor = @import("std").mem.zeroes([6]Monitor);
 
-pub const xinput2RGFW = [22]JoystickButton{
+pub const xinput2 = [22]JoystickButton{
     .a,
     .b,
     .x,
@@ -104,7 +104,7 @@ pub fn updateLockState(win: *Window, capital: bool, numlock: bool) void {
 }
 
 /// returns true if the key should be shifted
-pub fn shouldShift(keycode: u32, lockState: parent.LockState) bool {
+pub fn shouldShift(keycode: u32, lockState: quads.LockState) bool {
     const help = struct {
         inline fn xor(x: bool, y: bool) bool {
             return (x and !y) or (y and !x);
@@ -117,7 +117,7 @@ pub fn shouldShift(keycode: u32, lockState: parent.LockState) bool {
     return should_shift;
 }
 
-pub fn apiKeyCodeToRGFW(keycode: u32) Key {
+pub fn apiKeyCodeToQuads(keycode: u32) Key {
     _ = std.meta.intToEnum(Key, keycode) catch return .null;
     return keycodes[keycode];
 }

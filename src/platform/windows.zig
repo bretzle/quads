@@ -1,15 +1,15 @@
 const std = @import("std");
 const gl = @import("gl");
 const os = @import("../os/winapi.zig");
-const parent = @import("../rgfw.zig");
+const quads = @import("../quads.zig");
 const common = @import("common.zig");
 
-const Window = parent.Window;
-const Event = parent.Event;
-const Monitor = parent.Monitor;
-const Area = parent.math.Area;
-const Point = parent.math.Point;
-const Rect = parent.math.Rect;
+const Window = quads.Window;
+const Event = quads.Event;
+const Monitor = quads.Monitor;
+const Area = quads.math.Area;
+const Point = quads.math.Point;
+const Rect = quads.math.Rect;
 
 const mouseIconSrc = [11]u32{
     os.OCR_NORMAL,
@@ -56,7 +56,7 @@ const WGL_CONTEXT_CORE_PROFILE_BIT_ARB: i32 = 0x00000001;
 const WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB: i32 = 0x00000002;
 
 var wglinstance: ?os.HMODULE = null;
-var RGFW_XInput_dll: ?os.HMODULE = null;
+var XInput_dll: ?os.HMODULE = null;
 
 const WglChoosePixelFormatARB = ?*const fn (?os.HDC, [*c]const i32, [*c]const f32, u32, [*c]i32, [*c]u32) callconv(os.WINAPI) i32;
 var wglChoosePixelFormatARB: WglChoosePixelFormatARB = null;
@@ -115,10 +115,10 @@ fn loadXInput() void {
     };
 
     for (names) |name| {
-        RGFW_XInput_dll = os.LoadLibraryA(name);
-        if (RGFW_XInput_dll) |_| {
-            XInputGetStateSRC = @ptrCast(os.GetProcAddress(RGFW_XInput_dll, "XInputGetState"));
-            XInputGetKeystrokeSRC = @ptrCast(os.GetProcAddress(RGFW_XInput_dll, "XInputGetKeystroke"));
+        XInput_dll = os.LoadLibraryA(name);
+        if (XInput_dll) |_| {
+            XInputGetStateSRC = @ptrCast(os.GetProcAddress(XInput_dll, "XInputGetState"));
+            XInputGetKeystrokeSRC = @ptrCast(os.GetProcAddress(XInput_dll, "XInputGetKeystroke"));
 
             if (XInputGetStateSRC == null or XInputGetKeystrokeSRC == null)
                 std.debug.print("Failed to load XInputGetState\n", .{})
@@ -143,7 +143,7 @@ fn checkXInput(_: *Window, e: *Event) i32 {
             if (keystroke.VirtualKey > 0x5815) continue;
 
             e.typ = if (keystroke.Flags & os.XINPUT_KEYSTROKE_KEYDOWN != 0) .js_button_pressed else .js_button_released;
-            e.joy_button = common.xinput2RGFW[keystroke.VirtualKey - 0x5800];
+            e.joy_button = common.xinput2[keystroke.VirtualKey - 0x5800];
             common.jsPressed[i].set(e.joy_button, keystroke.Flags & os.XINPUT_KEYSTROKE_KEYDOWN == 0);
 
             return 1;
@@ -248,13 +248,13 @@ pub const WindowSrc = struct {
                 win.r.x = common.eventWindow.r.x;
                 win.r.y = common.eventWindow.r.y;
                 win.event.typ = .window_moved;
-                parent.callbacks.windowMoveCallback(win, win.r);
+                quads.callbacks.windowMoveCallback(win, win.r);
             }
             if (common.eventWindow.r.w != -1) {
                 win.r.w = common.eventWindow.r.w;
                 win.r.h = common.eventWindow.r.h;
                 win.event.typ = .window_resized;
-                parent.callbacks.windowResizeCallback(win, win.r);
+                quads.callbacks.windowResizeCallback(win, win.r);
             }
             common.eventWindow.src.window = null;
             common.eventWindow.r = .{ .x = -1, .y = -1, .w = -1, .h = -1 };
@@ -298,8 +298,8 @@ pub const WindowSrc = struct {
             //         }
             //     }
             //     DragFinish(drop.static);
-            //     RGFW_dndCallback.?(win, win.event.droppedFiles, win.event.droppedFilesCount);
-            //     win.event.typ = @as(u32, @bitCast(RGFW_dnd));
+            //     quads.callback.dndCallback(win, win.event.droppedFiles, win.event.droppedFilesCount);
+            //     win.event.typ = .dnd;
             //     return &win.event;
         }
 
@@ -314,7 +314,7 @@ pub const WindowSrc = struct {
         if (os.PeekMessageA(&msg, win.src.window, 0, 0, os.PM_REMOVE) != 0) {
             switch (msg.message) {
                 os.WM_CLOSE, os.WM_QUIT => {
-                    parent.callbacks.windowQuitCallback(win);
+                    quads.callbacks.windowQuitCallback(win);
                     win.event.typ = .quit;
                 },
                 os.WM_ACTIVATE => {
@@ -322,25 +322,25 @@ pub const WindowSrc = struct {
 
                     if (win.event.in_focus) {
                         win.event.typ = .focus_in;
-                        parent.callbacks.focusCallback(win, true);
+                        quads.callbacks.focusCallback(win, true);
                     } else {
                         win.event.typ = .focus_out;
-                        parent.callbacks.focusCallback(win, false);
+                        quads.callbacks.focusCallback(win, false);
                     }
                 },
                 os.WM_PAINT => {
                     win.event.typ = .window_refresh;
-                    parent.callbacks.windowRefreshCallback(win);
+                    quads.callbacks.windowRefreshCallback(win);
                 },
                 os.WM_MOUSELEAVE => {
                     win.event.typ = .mouse_leave;
                     win._winArgs.mouse_left = true;
-                    parent.callbacks.mouseNotifyCallBack(win, win.event.point, false);
+                    quads.callbacks.mouseNotifyCallBack(win, win.event.point, false);
                 },
                 os.WM_KEYUP, os.WM_KEYDOWN => {
-                    win.event.keycode = common.apiKeyCodeToRGFW(@truncate(msg.wParam));
+                    win.event.keycode = common.apiKeyCodeToQuads(@truncate(msg.wParam));
 
-                    common.keyboard[@intFromEnum(win.event.keycode)].prev = parent.isPressed(win, win.event.keycode);
+                    common.keyboard[@intFromEnum(win.event.keycode)].prev = quads.isPressed(win, win.event.keycode);
 
                     const keyName = struct {
                         var static: [16]u8 = @import("std").mem.zeroes([16]u8);
@@ -358,24 +358,24 @@ pub const WindowSrc = struct {
 
                     win.event.keyName = keyName.static;
 
-                    if (parent.isPressed(win, .shift_l)) {
+                    if (quads.isPressed(win, .shift_l)) {
                         _ = os.ToAscii(@truncate(msg.wParam), os.MapVirtualKeyA(@truncate(msg.wParam), os.MAPVK_VK_TO_CHAR), @ptrCast(&keyboardState.static), @alignCast(@ptrCast(&win.event.keyName)), 0);
                     }
 
                     win.event.typ = if (msg.message == os.WM_KEYUP) .key_released else .key_pressed;
                     common.keyboard[@intFromEnum(win.event.keycode)].current = msg.message == os.WM_KEYDOWN;
-                    parent.callbacks.keyCallback(win, win.event.keycode, std.mem.sliceTo(&win.event.keyName, 0), win.event.lockState, false);
+                    quads.callbacks.keyCallback(win, win.event.keycode, std.mem.sliceTo(&win.event.keyName, 0), win.event.lockState, false);
                 },
                 os.WM_MOUSEMOVE => if (!win._winArgs.hold_mouse) {
                     win.event.typ = .mouse_pos_changed;
                     win.event.point.x = os.GET_X_LPARAM(msg.lParam);
                     win.event.point.y = os.GET_Y_LPARAM(msg.lParam);
-                    parent.callbacks.mousePosCallback(win, win.event.point);
+                    quads.callbacks.mousePosCallback(win, win.event.point);
 
                     if (win._winArgs.mouse_left) {
                         win._winArgs.mouse_left = !win._winArgs.mouse_left;
                         win.event.typ = .mouse_enter;
-                        parent.callbacks.mouseNotifyCallBack(win, win.event.point, true);
+                        quads.callbacks.mouseNotifyCallBack(win, win.event.point, true);
                     }
                 },
                 os.WM_INPUT => if (win._winArgs.hold_mouse) {
@@ -386,21 +386,21 @@ pub const WindowSrc = struct {
                     common.mouseButtons.getPtr(win.event.button).prev = common.mouseButtons.get(win.event.button).current;
                     common.mouseButtons.getPtr(win.event.button).current = true;
                     win.event.typ = .mouse_button_pressed;
-                    parent.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                    quads.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
                 },
                 os.WM_RBUTTONDOWN => {
                     win.event.button = .right;
                     win.event.typ = .mouse_button_pressed;
                     common.mouseButtons.getPtr(win.event.button).prev = common.mouseButtons.get(win.event.button).current;
                     common.mouseButtons.getPtr(win.event.button).current = true;
-                    parent.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                    quads.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
                 },
                 os.WM_MBUTTONDOWN => {
                     win.event.button = .middle;
                     win.event.typ = .mouse_button_pressed;
                     common.mouseButtons.getPtr(win.event.button).prev = common.mouseButtons.get(win.event.button).current;
                     common.mouseButtons.getPtr(win.event.button).current = true;
-                    parent.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                    quads.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
                 },
                 os.WM_MOUSEWHEEL => {
                     win.event.button = if (msg.wParam > 0) .scroll_up else .scroll_down;
@@ -408,38 +408,37 @@ pub const WindowSrc = struct {
                     common.mouseButtons.getPtr(win.event.button).current = true;
                     win.event.scroll = @as(f64, @floatFromInt(os.HIWORD(msg.wParam))) / 120.0;
                     win.event.typ = .mouse_button_pressed;
-                    parent.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
+                    quads.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, true);
                 },
                 os.WM_LBUTTONUP => {
                     win.event.button = .left;
                     win.event.typ = .mouse_button_released;
                     common.mouseButtons.getPtr(win.event.button).prev = common.mouseButtons.get(win.event.button).current;
                     common.mouseButtons.getPtr(win.event.button).current = false;
-                    parent.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, false);
+                    quads.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, false);
                 },
                 os.WM_RBUTTONUP => {
                     win.event.button = .right;
                     win.event.typ = .mouse_button_released;
                     common.mouseButtons.getPtr(win.event.button).prev = common.mouseButtons.get(win.event.button).current;
                     common.mouseButtons.getPtr(win.event.button).current = false;
-                    parent.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, false);
+                    quads.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, false);
                 },
                 os.WM_MBUTTONUP => {
                     win.event.button = .middle;
                     win.event.typ = .mouse_button_released;
                     common.mouseButtons.getPtr(win.event.button).prev = common.mouseButtons.get(win.event.button).current;
                     common.mouseButtons.getPtr(win.event.button).current = false;
-                    parent.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, false);
+                    quads.callbacks.mouseButtonCallback(win, win.event.button, win.event.scroll, false);
                 },
                 os.WM_DROPFILES => {
-                    // win.event.typ = @as(u32, @bitCast(RGFW_dnd_init));
+                    // win.event.typ = .dnd_init;
                     // drop.static = @as(HDROP, @ptrFromInt(msg.wParam));
                     // var pt: POINT = undefined;
-                    // _ = &pt;
-                    // _ = DragQueryPoint(drop.static, &pt);
-                    // win.event.point.x = @as(i32, @bitCast(@as(c_int, @truncate(pt.x))));
-                    // win.event.point.y = @as(i32, @bitCast(@as(c_int, @truncate(pt.y))));
-                    // RGFW_dndInitCallback.?(win, win.event.point);
+                    // _ = os.DragQueryPoint(drop.static, &pt);
+                    // win.event.point.x = pt.x;
+                    // win.event.point.y = pt.y;
+                    // quads.callbacks.dndInitCallback(win, win.event.point);
                 },
                 os.WM_GETMINMAXINFO => if (win.src.maxSize.w != 0 or win.src.maxSize.h != 0) {
                     const mmi: *os.MINMAXINFO = @ptrFromInt(@as(usize, @bitCast(msg.lParam)));
@@ -459,21 +458,21 @@ pub const WindowSrc = struct {
 
         if (os.IsWindow(win.src.window) == 0) {
             win.event.typ = .quit;
-            parent.callbacks.windowQuitCallback(win);
+            quads.callbacks.windowQuitCallback(win);
         }
 
         return if (win.event.typ != .none) &win.event else null;
     }
 
-    pub fn eventWait(_: *Window, wait: parent.Wait) void {
+    pub fn eventWait(_: *Window, wait: quads.Wait) void {
         _ = os.MsgWaitForMultipleObjects(0, null, 0, @intCast(@as(i32, @intFromEnum(wait)) * 1000), os.QS_ALLINPUT);
     }
 
     pub fn close(win: *Window, allocator: std.mem.Allocator) void {
         if (win == common.root) {
-            if (RGFW_XInput_dll != null) {
-                _ = os.FreeLibrary(RGFW_XInput_dll);
-                RGFW_XInput_dll = null;
+            if (XInput_dll != null) {
+                _ = os.FreeLibrary(XInput_dll);
+                XInput_dll = null;
             }
             if (wglinstance != null) {
                 _ = os.FreeLibrary(wglinstance);
@@ -486,7 +485,7 @@ pub const WindowSrc = struct {
         _ = os.DeleteDC(win.src.hdc);
         _ = os.DestroyWindow(win.src.window);
 
-        for (0..parent.max_drops) |i| {
+        for (0..quads.max_drops) |i| {
             allocator.free(win.event.droppedFiles[i]);
         }
         allocator.free(win.event.droppedFiles);
@@ -494,8 +493,8 @@ pub const WindowSrc = struct {
         allocator.destroy(win);
     }
 
-    pub fn init(win: *Window, name: [:0]const u8, args: parent.WindowOptions) void {
-        if (RGFW_XInput_dll == null) loadXInput();
+    pub fn init(win: *Window, name: [:0]const u8, args: quads.WindowOptions) void {
+        if (XInput_dll == null) loadXInput();
         if (wglinstance == null) wglinstance = os.LoadLibraryA("opengl32.dll");
 
         common.eventWindow.r = .{ .x = -1, .y = -1, .w = -1, .h = -1 };
@@ -564,8 +563,7 @@ pub const WindowSrc = struct {
 
         if (args.allow_dnd) {
             win._winArgs.allow_dnd = true;
-            // RGFW_window_setDND(win, true);
-            todo("set dnd", @src());
+            win.setDND(true);
         }
         win.src.hdc = os.GetDC(win.src.window) orelse unreachable;
 
@@ -668,7 +666,7 @@ pub const WindowSrc = struct {
         }
 
         if (args.center) {
-            const screenR = parent.getScreenSize();
+            const screenR = quads.getScreenSize();
             win.move(.{ .x = @intCast((screenR.w - @as(u32, @intCast(win.r.w))) / 2), .y = @intCast((screenR.h - @as(u32, @intCast(win.r.h))) / 2) });
         }
 
@@ -683,7 +681,7 @@ pub const WindowSrc = struct {
         if (common.root == null) {
             common.root = win;
         } else {
-            // _ = wglShareLists(RGFW_root.src.ctx, win.src.ctx);
+            // _ = wglShareLists(common.root.src.ctx, win.src.ctx);
             unreachable;
         }
     }
@@ -739,7 +737,7 @@ pub const WindowSrc = struct {
         _ = os.DestroyCursor(cursor);
     }
 
-    pub fn setMouseStandard(win: *Window, mouse: parent.MouseIcons) void {
+    pub fn setMouseStandard(win: *Window, mouse: quads.MouseIcons) void {
         const icon = os.MAKEINTRESOURCEA(mouseIconSrc[@intFromEnum(mouse)]);
 
         _ = os.SetClassLongPtrA(win.src.window, os.GCLP_HCURSOR, @bitCast(@intFromPtr(os.LoadCursorA(null, icon))));

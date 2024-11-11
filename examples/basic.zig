@@ -1,7 +1,7 @@
 const std = @import("std");
-const rgfw = @import("rgfw");
-const gfx = rgfw.gfx.low;
-const text = rgfw.gfx.text;
+const quads = @import("quads");
+const gfx = quads.gfx.low;
+const text = quads.gfx.text;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
@@ -12,7 +12,7 @@ const Vertex = extern struct {
 };
 
 pub fn main() !void {
-    const win = try rgfw.Window.create(allocator, "name", .{ .x = 500, .y = 500, .w = 500, .h = 500 }, .{ .center = true });
+    const win = try quads.Window.create(allocator, "name", .{ .x = 500, .y = 500, .w = 500, .h = 500 }, .{ .center = true });
     defer win.close(allocator);
 
     win.makeCurrent();

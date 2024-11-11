@@ -1,12 +1,12 @@
 const std = @import("std");
-const rgfw = @import("rgfw");
-const gfx = rgfw.gfx.high;
+const quads = @import("quads");
+const gfx = quads.gfx.high;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
 pub fn main() !void {
-    const win = try rgfw.Window.create(allocator, "name", .{ .x = 500, .y = 500, .w = 500, .h = 500 }, .{ .center = true });
+    const win = try quads.Window.create(allocator, "name", .{ .x = 500, .y = 500, .w = 500, .h = 500 }, .{ .center = true });
     defer win.close(allocator);
 
     win.makeCurrent();

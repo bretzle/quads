@@ -1,9 +1,9 @@
-const rgfw = @import("rgfw.zig");
+const quads = @import("quads.zig");
 const math = @import("math.zig");
 
-const Window = rgfw.Window;
-const MouseButton = rgfw.MouseButton;
-const JoystickButton = rgfw.JoystickButton;
+const Window = quads.Window;
+const MouseButton = quads.MouseButton;
+const JoystickButton = quads.JoystickButton;
 
 pub const WindowMoveFn = *const fn (win: *Window, r: math.Rect) void;
 pub const WindowResizeFn = *const fn (win: *Window, r: math.Rect) void;
@@ -13,7 +13,7 @@ pub const MouseNotifyFn = *const fn (win: *Window, pos: math.Point, status: bool
 pub const MousePosFn = *const fn (win: *Window, pos: math.Point) void;
 pub const DndInitFn = *const fn (win: *Window, pos: math.Point) void;
 pub const WindowRefreshFn = *const fn (win: *Window) void;
-pub const KeyFn = *const fn (win: *Window, keycode: rgfw.Key, name: []const u8, lock: rgfw.LockState, pressed: bool) void;
+pub const KeyFn = *const fn (win: *Window, keycode: quads.Key, name: []const u8, lock: quads.LockState, pressed: bool) void;
 pub const MouseButtonFn = *const fn (win: *Window, button: MouseButton, scroll: f64, pressed: bool) void;
 pub const JoyButtonFn = *const fn (win: *Window, joystick: u16, button: JoystickButton, pressed: bool) void;
 pub const JoyAxisFn = *const fn (win: *Window, joystick: u16, axis: [2]math.Point) void;
@@ -42,7 +42,7 @@ const stubs = struct {
     fn mousePos(_: *Window, _: math.Point) void {}
     fn dndInit(_: *Window, _: math.Point) void {}
     fn windowRefresh(_: *Window) void {}
-    fn key(_: *Window, _: rgfw.Key, _: []const u8, _: rgfw.LockState, _: bool) void {}
+    fn key(_: *Window, _: quads.Key, _: []const u8, _: quads.LockState, _: bool) void {}
     fn mouseButton(_: *Window, _: MouseButton, _: f64, _: bool) void {}
     fn joyButton(_: *Window, _: u16, _: JoystickButton, _: bool) void {}
     fn joyAxis(_: *Window, _: u16, _: [2]math.Point) void {}

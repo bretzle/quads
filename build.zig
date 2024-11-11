@@ -10,8 +10,8 @@ pub fn build(b: *std.Build) void {
         .profile = .core,
     });
 
-    const rgfw = b.addModule("rgfw", .{
-        .root_source_file = b.path("src/rgfw.zig"),
+    const quads = b.addModule("quads", .{
+        .root_source_file = b.path("src/quads.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    exe.root_module.addImport("rgfw", rgfw);
+    exe.root_module.addImport("quads", quads);
 
     const run_cmd = b.addRunArtifact(exe);
 
@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const t = b.addTest(.{
-        .root_source_file = b.path("src/rgfw.zig"),
+        .root_source_file = b.path("src/quads.zig"),
     });
     t.root_module.addImport("gl", gl);
 
