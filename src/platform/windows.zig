@@ -508,6 +508,7 @@ pub const WindowSrc = struct {
         const class = os.WNDCLASSEXA{
             .lpszClassName = name,
             .hInstance = inh,
+            .hIcon = os.LoadIconA(inh, @ptrFromInt(101)),
             .hCursor = os.LoadCursorA(null, os.IDC_ARROW),
             .lpfnWndProc = WndProc,
         };
