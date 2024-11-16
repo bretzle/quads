@@ -30,6 +30,17 @@ pub inline fn cast(comptime T: type, comptime U: type, data: U) T {
     };
 }
 
+pub fn ReturnType(comptime T: type) type {
+    return @typeInfo(T).@"fn".return_type.?;
+}
+
+pub fn BaseReturnType(comptime T: type) type {
+    return switch (@typeInfo(ReturnType(T))) {
+        .error_union => |x| x.payload,
+        else => ReturnType(T),
+    };
+}
+
 // TODO: dont use a hash map. these pools *probably* wont have that many items, so an array *should* be cheaper
 //       or better yet a _real_ pool impl. see: https://floooh.github.io/2018/06/17/handles-vs-pointers.html
 pub fn SimplePool(comptime T: type, comptime Handle: type) type {

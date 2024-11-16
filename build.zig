@@ -25,23 +25,17 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe.root_module.addImport("quads", quads);
 
     b.installArtifact(exe);
 
-    exe.root_module.addImport("quads", quads);
-
     const run_cmd = b.addRunArtifact(exe);
-
     run_cmd.step.dependOn(b.getInstallStep());
-
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    const t = b.addTest(.{
-        .root_source_file = b.path("src/quads.zig"),
-    });
+    const t = b.addTest(.{ .root_source_file = b.path("src/quads.zig") });
     t.root_module.addImport("gl", gl);
-
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&t.step);
 }

@@ -1,15 +1,17 @@
 const std = @import("std");
 const math = @import("math.zig");
 
-pub const low = struct {
-    pub usingnamespace @import("gfx/common.zig");
-    pub usingnamespace @import("gfx/renderer_low.zig");
-};
+const low = @This();
 
-pub const high = struct {
-    pub usingnamespace @import("gfx/common.zig");
-    pub usingnamespace @import("gfx/renderer_high.zig");
-};
+// pub const low = struct {
+pub usingnamespace @import("gfx/common.zig");
+pub usingnamespace @import("gfx/renderer_low.zig");
+// };
+
+// pub const high = struct {
+//     pub usingnamespace @import("gfx/common.zig");
+//     pub usingnamespace @import("gfx/renderer_high.zig");
+// };
 
 pub const text = struct {
     const Vertex = extern struct {
@@ -34,11 +36,10 @@ pub const text = struct {
 
     var verticecs = std.BoundedArray(Vertex, max_vertices){};
     var indices = std.BoundedArray(u16, max_indices){};
-    var allocator: ?std.mem.Allocator = null;
 
-    pub fn init(alloc: ?std.mem.Allocator) !void {
-        allocator = alloc;
+    var buf: [512]u8 = undefined;
 
+    pub fn init() !void {
         var unpacked: [0x100 * 8 * 8]u8 = undefined;
         var ptr: [*]const u8 = &font_data;
         for (0..0x100) |chr| {
@@ -88,11 +89,7 @@ pub const text = struct {
     }
 
     pub fn print(comptime fmt: []const u8, args: anytype, x: f32, y: f32, scale: f32) void {
-        std.debug.assert(allocator != null);
-
-        const str = std.fmt.allocPrint(allocator.?, fmt, args) catch @trap();
-        defer allocator.?.free(str);
-
+        const str = std.fmt.bufPrint(&buf, fmt, args) catch @trap();
         write(str, x, y, scale);
     }
 

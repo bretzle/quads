@@ -82,7 +82,7 @@ pub extern "user32" fn UnregisterClassA(lpClassName: LPCSTR, hInstance: HINSTANC
 
 pub extern "user32" fn AdjustWindowRectEx(lpRect: *RECT, dwStyle: DWORD, bMenu: BOOL, dwExStyle: DWORD) callconv(WINAPI) BOOL;
 
-pub extern "user32" fn CreateWindowExA(dwExStyle: DWORD, lpClassName: ?LPCSTR, lpWindowName: ?LPCSTR, dwStyle: DWORD, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWindParent: ?HWND, hMenu: ?HMENU, hInstance: HINSTANCE, lpParam: ?LPVOID) callconv(WINAPI) ?HWND;
+pub extern "user32" fn CreateWindowExA(dwExStyle: DWORD, lpClassName: ?LPCSTR, lpWindowName: ?LPCSTR, dwStyle: DWORD, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWindParent: ?HWND, hMenu: ?HMENU, hInstance: ?HINSTANCE, lpParam: ?LPVOID) callconv(WINAPI) ?HWND;
 
 pub extern "user32" fn DestroyWindow(hWnd: ?HWND) BOOL;
 
@@ -151,6 +151,7 @@ pub const WM_QUIT = 0x0012;
 pub const WM_GETMINMAXINFO = 0x0024;
 pub const WM_SETICON = 0x0080;
 pub const WM_DROPFILES = 0x0233;
+pub const WM_SETCURSOR = 0x0020;
 
 pub extern "kernel32" fn GetModuleHandleA(lpModuleName: ?LPCSTR) callconv(WINAPI) ?HINSTANCE;
 
@@ -317,13 +318,19 @@ pub extern "kernel32" fn FreeLibrary(hLibModule: ?HMODULE) callconv(WINAPI) BOOL
 
 pub extern "kernel32" fn GetProcAddress(hModule: ?HMODULE, lpProcName: LPCSTR) callconv(WINAPI) ?PROC;
 
-pub extern "gdi32" fn SwapBuffers(hdc: HDC) callconv(WINAPI) BOOL;
+pub extern "gdi32" fn SwapBuffers(hdc: ?HDC) callconv(WINAPI) BOOL;
 
+pub const GWLP_USERDATA: i32 = -21;
 pub const GWL_STYLE: i32 = -16;
+pub const GWLP_WNDPROC: i32 = -4;
 
 pub extern "user32" fn GetWindowLongA(hWnd: ?HWND, nIndex: i32) callconv(WINAPI) i32;
 
 pub extern "user32" fn SetWindowLongA(hWnd: ?HWND, nIndex: i32, dwNewLong: i32) callconv(WINAPI) i32;
+
+pub extern "user32" fn SetWindowLongPtrA(hWnd: ?HWND, nIndex: i32, dwNewLong: LONG_PTR) callconv(WINAPI) LONG_PTR;
+
+pub extern "user32" fn GetWindowLongPtrA(hWnd: ?HWND, nIndex: i32) callconv(WINAPI) LONG_PTR;
 
 pub const MONITOR_DEFAULTTOPRIMARY = 1;
 pub const MONITOR_DEFAULTTONEAREST = 2;
@@ -660,3 +667,11 @@ pub const MINMAXINFO = extern struct {
     ptMinTrackSize: POINT,
     ptMaxTrackSize: POINT,
 };
+
+pub const USER_DEFAULT_SCREEN_DPI = 96;
+
+pub extern "user32" fn GetDpiForWindow(hwnd: HWND) callconv(WINAPI) UINT;
+
+pub const HTCLIENT = 1;
+
+pub extern "user32" fn ShowCursor(bShow: BOOL) callconv(WINAPI) i32;

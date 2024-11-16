@@ -1,26 +1,33 @@
 const std = @import("std");
 const quads = @import("quads");
-const gfx = quads.gfx.low;
-const text = quads.gfx.text;
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-const allocator = gpa.allocator();
-
-const  ver = @import("vertex_shader");
+const gfx = quads.gfx;
 
 const Vertex = extern struct {
     pos: [2]f32,
     color: [4]f32,
 };
 
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
+
 pub fn main() !void {
-    const win = try quads.Window.create(allocator, "name", .{ .x = 500, .y = 500, .w = 500, .h = 500 }, .{ .center = true });
-    defer win.close(allocator);
+    defer _ = gpa.deinit();
 
-    win.makeCurrent();
+    try quads.init(allocator, .{});
+    defer quads.deinit();
 
-    gfx.init(allocator, .{ win.r.w, win.r.h });
+    var window = try quads.createWindow(.{ .title = "basic" });
+    defer window.destroy();
+
+    try window.createContext(.{});
+    window.makeContextCurrent();
+    window.swapInterval(1);
+
+    gfx.init(allocator, .{ 640, 480 });
     defer gfx.deinit();
+
+    try gfx.text.init();
 
     const indices = [3]u16{ 0, 1, 2 };
     const vertices = [3]Vertex{
@@ -49,25 +56,28 @@ pub fn main() !void {
         .{},
     );
 
-    try text.init(allocator);
+    return quads.run(loop, .{ &window, pipeline, &bindings });
+}
 
-    while (!win.shouldClose()) {
-        while (win.checkEvent()) |ev| {
-            if (ev.typ == .window_resized) gfx.canvas_size = .{ @intCast(win.r.w), @intCast(win.r.h) };
-        }
-
-        text.write("Hello, world!", 20, 20, 2);
-
-        gfx.beginDefaultPass(null);
-        gfx.applyPipeline(pipeline);
-        gfx.applyBindings(&bindings);
-        gfx.draw(0, 3, 1);
-        gfx.endRenderPass();
-        text.render();
-        gfx.commitFrame();
-
-        win.swapBuffers();
+fn loop(window: *quads.Window, pipeline: gfx.PipelineId, bindings: *const gfx.Bindings) bool {
+    while (window.getEvent()) |ev| {
+        if (ev == .close) return false;
     }
+
+    gfx.text.write("Hello, world!", 20, 20, 2);
+
+    gfx.beginDefaultPass(null);
+    gfx.applyPipeline(pipeline);
+    gfx.applyBindings(bindings);
+    gfx.draw(0, 3, 1);
+    gfx.endRenderPass();
+
+    gfx.text.render();
+
+    gfx.commitFrame();
+
+    window.swapBuffers();
+    return true;
 }
 
 const vertex =

@@ -72,7 +72,7 @@ var allocator: std.mem.Allocator = undefined;
 var gl_procs: gl.ProcTable = undefined;
 
 pub fn init(alloc: std.mem.Allocator, size: [2]i32) void {
-    std.debug.assert(gl_procs.init(@import("../quads.zig").getProcAddress));
+    std.debug.assert(gl_procs.init(@import("../quads.zig").glGetProcAddress));
     gl.makeProcTableCurrent(&gl_procs);
 
     gl.GetIntegerv(gl.FRAMEBUFFER_BINDING, @ptrCast(&default_framebuffer));
