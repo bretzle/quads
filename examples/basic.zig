@@ -6,6 +6,8 @@ const text = quads.gfx.text;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
+const  ver = @import("vertex_shader");
+
 const Vertex = extern struct {
     pos: [2]f32,
     color: [4]f32,

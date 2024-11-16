@@ -9,7 +9,7 @@ pub fn compileAssert(comptime ok: bool, comptime format: []const u8, comptime ar
 }
 
 pub fn isVector(comptime T: type) void {
-    if (@typeInfo(T) != .Vector) compileError("Expected a Vector got {}", .{T});
+    if (@typeInfo(T) != .vector) compileError("Expected a Vector got {}", .{T});
 }
 
 pub inline fn cast(comptime T: type, comptime U: type, data: U) T {
@@ -33,8 +33,8 @@ pub inline fn cast(comptime T: type, comptime U: type, data: U) T {
 // TODO: dont use a hash map. these pools *probably* wont have that many items, so an array *should* be cheaper
 //       or better yet a _real_ pool impl. see: https://floooh.github.io/2018/06/17/handles-vs-pointers.html
 pub fn SimplePool(comptime T: type, comptime Handle: type) type {
-    compileAssert(@typeInfo(Handle) == .Enum, "Handle must be an enum", .{});
-    compileAssert(@typeInfo(Handle).Enum.tag_type == u32, "Handle must be backed by u32", .{});
+    compileAssert(@typeInfo(Handle) == .@"enum", "Handle must be an enum", .{});
+    compileAssert(@typeInfo(Handle).@"enum".tag_type == u32, "Handle must be backed by u32", .{});
 
     const Context = struct {
         pub fn hash(_: @This(), key: Handle) u64 {

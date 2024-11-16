@@ -105,7 +105,7 @@ pub const text = struct {
             const uvx = 1.0 / 256.0;
             const char: f32 = @floatFromInt(c);
 
-            const offset = verticecs.len;
+            const offset: u16 = @truncate(verticecs.len);
             indices.appendSliceAssumeCapacity(&.{ offset + 0, offset + 1, offset + 2, offset + 0, offset + 2, offset + 3 });
 
             // zig fmt: off
@@ -129,7 +129,7 @@ pub const text = struct {
         low.applyPipeline(pipeline);
         low.applyBindings(&bindings);
         low.applyUniforms(&Uniforms{ .mvp = math.Mat4.ortho(0, @floatFromInt(low.canvas_size[0]), @floatFromInt(low.canvas_size[1]), 0, -1, 1), .color = .{ 1, 1, 1, 1 } });
-        low.draw(0, indices.len, 1);
+        low.draw(0, @truncate(indices.len), 1);
         low.endRenderPass();
 
         verticecs.len = 0;

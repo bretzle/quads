@@ -103,13 +103,13 @@ pub fn newBuffer(typ: gfx.BufferType, usage: gfx.BufferUsage, data: anytype) gfx
 
     var bytes: ?[]const u8 = null;
     const size: usize, const element_size: usize = switch (@typeInfo(@TypeOf(data))) {
-        .Pointer => |info| blk: {
+        .pointer => |info| blk: {
             meta.compileAssert(info.size == .One or info.size == .Slice, "data should be a slice got: {s}", .{@typeName(@TypeOf(data))});
 
             bytes = std.mem.sliceAsBytes(data);
             break :blk .{ bytes.?.len, bytes.?.len / data.len };
         },
-        .Struct => .{ data[1] * @sizeOf(data[0]), @sizeOf(data[0]) },
+        .@"struct" => .{ data[1] * @sizeOf(data[0]), @sizeOf(data[0]) },
         else => @compileError("unsupported: " ++ @typeName(@TypeOf(data))),
     };
 
@@ -143,7 +143,7 @@ pub fn newBuffer(typ: gfx.BufferType, usage: gfx.BufferUsage, data: anytype) gfx
 
 pub fn bufferUpdate(buffer: gfx.BufferId, data: anytype) void {
     switch (@typeInfo(@TypeOf(data))) {
-        .Pointer => |info| {
+        .pointer => |info| {
             meta.compileAssert(info.size == .Slice, "data should be a slice got: {s}", .{@typeName(@TypeOf(data))});
         },
         else => @compileError("unsupported: " ++ @typeName(@TypeOf(data))),
@@ -602,9 +602,9 @@ pub fn applyBindings(bindings: *const gfx.Bindings) void {
 
 pub fn applyUniforms(ptr: anytype) void {
     const Ptr = @TypeOf(ptr);
-    meta.compileAssert(@typeInfo(Ptr) == .Pointer, "data should be a pointer", .{});
+    meta.compileAssert(@typeInfo(Ptr) == .pointer, "data should be a pointer", .{});
     const T = std.meta.Child(Ptr);
-    meta.compileAssert(@typeInfo(T) == .Struct, "data should be a struct pointer", .{});
+    meta.compileAssert(@typeInfo(T) == .@"struct", "data should be a struct pointer", .{});
 
     const pipeline = pipelines.get(cache.cur_pipeline.?);
     const shader = shaders.get(pipeline.shader);
