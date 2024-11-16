@@ -56,12 +56,17 @@ pub fn main() !void {
         .{},
     );
 
-    return quads.run(loop, .{ &window, pipeline, &bindings });
+    try quads.run(loop, .{ &window, pipeline, &bindings });
 }
 
 fn loop(window: *quads.Window, pipeline: gfx.PipelineId, bindings: *const gfx.Bindings) bool {
     while (window.getEvent()) |ev| {
-        if (ev == .close) return false;
+        std.debug.print("{any}\n", .{ev});
+        switch (ev) {
+            .close => return false,
+            .framebuffer => |s| gfx.canvas_size = .{ s.width, s.height },
+            else => {},
+        }
     }
 
     gfx.text.write("Hello, world!", 20, 20, 2);

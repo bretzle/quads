@@ -15,6 +15,7 @@ pub const HMODULE = *opaque {};
 pub const PROC = *opaque {};
 pub const HMONITOR = *opaque {};
 pub const HWND = std.os.windows.HWND;
+pub const HRGN = *opaque {};
 pub const HDC = *opaque {};
 pub const INT = c_int;
 pub const LPCSTR = [*:0]const CHAR;
@@ -152,6 +153,14 @@ pub const WM_GETMINMAXINFO = 0x0024;
 pub const WM_SETICON = 0x0080;
 pub const WM_DROPFILES = 0x0233;
 pub const WM_SETCURSOR = 0x0020;
+pub const WM_DPICHANGED = 0x02E0;
+pub const WM_XBUTTONDOWN = 0x020B;
+pub const WM_XBUTTONUP = 0x020C;
+pub const WM_MOUSEHWHEEL = 0x020E;
+pub const WM_SYSCOMMAND = 0x0112;
+pub const WM_INPUT_DEVICE_CHANGE = 0x00FE;
+
+pub const SC_KEYMENU = 0xF100;
 
 pub extern "kernel32" fn GetModuleHandleA(lpModuleName: ?LPCSTR) callconv(WINAPI) ?HINSTANCE;
 
@@ -675,3 +684,17 @@ pub extern "user32" fn GetDpiForWindow(hwnd: HWND) callconv(WINAPI) UINT;
 pub const HTCLIENT = 1;
 
 pub extern "user32" fn ShowCursor(bShow: BOOL) callconv(WINAPI) i32;
+
+pub extern "user32" fn ValidateRgn(hwnd: HWND, hrgn: ?HRGN) callconv(WINAPI) BOOL;
+
+pub const WHEEL_DELTA = 120;
+
+pub const XBUTTON1 = 1;
+pub const XBUTTON2 = 2;
+
+pub const VK_PROCESSKEY = 229;
+pub const VK_F4 = 115;
+
+pub extern "user32" fn GetMessageTime() callconv(WINAPI) i32;
+
+pub const KF_UP = 0x8000;
