@@ -125,7 +125,7 @@ pub const text = struct {
         low.beginDefaultPass(.nothing);
         low.applyPipeline(pipeline);
         low.applyBindings(&bindings);
-        low.applyUniforms(&Uniforms{ .mvp = math.Mat4.ortho(0, @floatFromInt(low.canvas_size[0]), @floatFromInt(low.canvas_size[1]), 0, -1, 1), .color = .{ 1, 1, 1, 1 } });
+        low.applyUniforms(&Uniforms{ .mvp = math.Mat4.ortho(0, @floatFromInt(low.canvas_size.width), @floatFromInt(low.canvas_size.height), 0, -1, 1), .color = .{ 1, 1, 1, 1 } });
         low.draw(0, @truncate(indices.len), 1);
         low.endRenderPass();
 

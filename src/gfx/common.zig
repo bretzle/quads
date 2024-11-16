@@ -1,7 +1,8 @@
 const std = @import("std");
+const quads = @import("../quads.zig");
 const g = @import("gl");
 
-pub var canvas_size: [2]i32 = undefined;
+pub var canvas_size: quads.Size = undefined;
 
 pub const BufferId = enum(u32) { invalid, _ };
 

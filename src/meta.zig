@@ -67,6 +67,10 @@ pub fn SimplePool(comptime T: type, comptime Handle: type) type {
             return .{ .resources = Map.init(allocator) };
         }
 
+        pub fn deinit(self: *@This()) void {
+            self.resources.deinit();
+        }
+
         pub fn add(self: *@This(), resource: T) Handle {
             self.resources.put(@enumFromInt(self.id), resource) catch @trap();
             self.id += 1;

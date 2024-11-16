@@ -66,12 +66,11 @@ var cache: Cache = .{};
 
 var default_framebuffer: u32 = 0;
 
-var arena: std.heap.ArenaAllocator = undefined;
 var allocator: std.mem.Allocator = undefined;
 
 var gl_procs: gl.ProcTable = undefined;
 
-pub fn init(alloc: std.mem.Allocator, size: [2]i32) void {
+pub fn init(alloc: std.mem.Allocator) void {
     std.debug.assert(gl_procs.init(@import("../quads.zig").glGetProcAddress));
     gl.makeProcTableCurrent(&gl_procs);
 
@@ -81,9 +80,7 @@ pub fn init(alloc: std.mem.Allocator, size: [2]i32) void {
     gl.GenVertexArrays(1, @ptrCast(&vao));
     gl.BindVertexArray(vao);
 
-    gfx.canvas_size = size;
-    arena = std.heap.ArenaAllocator.init(alloc);
-    allocator = arena.allocator();
+    allocator = alloc;
     shaders = meta.SimplePool(GlShader, gfx.ShaderId).create(allocator);
     pipelines = meta.SimplePool(GlPipeline, gfx.PipelineId).create(allocator);
     passes = meta.SimplePool(GlRenderPass, gfx.PassId).create(allocator);
@@ -92,7 +89,26 @@ pub fn init(alloc: std.mem.Allocator, size: [2]i32) void {
 }
 
 pub fn deinit() void {
-    arena.deinit();
+    {
+        var it = pipelines.resources.valueIterator();
+        while (it.next()) |pip| {
+            allocator.free(pip.layout);
+        }
+        pipelines.deinit();
+    }
+
+    {
+        var it = shaders.resources.valueIterator();
+        while (it.next()) |shd| {
+            allocator.free(shd.images);
+            allocator.free(shd.uniforms);
+        }
+        shaders.deinit();
+    }
+
+    passes.deinit();
+    buffers.deinit();
+    textures.deinit();
 }
 
 /// slice: []const type
@@ -508,8 +524,8 @@ pub fn beginPass(pass: ?gfx.PassId, action: gfx.PassAction) void {
         h = @intCast(textures.get(texture).params.height);
     } else {
         framebuffer = default_framebuffer;
-        w = gfx.canvas_size[0];
-        h = gfx.canvas_size[1];
+        w = gfx.canvas_size.width;
+        h = gfx.canvas_size.height;
     }
 
     gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer);

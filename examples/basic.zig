@@ -24,7 +24,7 @@ pub fn main() !void {
     window.makeContextCurrent();
     window.swapInterval(1);
 
-    gfx.init(allocator, .{ 640, 480 });
+    gfx.init(allocator);
     defer gfx.deinit();
 
     try gfx.text.init();
@@ -64,7 +64,7 @@ fn loop(window: *quads.Window, pipeline: gfx.PipelineId, bindings: *const gfx.Bi
         std.debug.print("{any}\n", .{ev});
         switch (ev) {
             .close => return false,
-            .framebuffer => |s| gfx.canvas_size = .{ s.width, s.height },
+            .framebuffer => |s| gfx.canvas_size = s,
             else => {},
         }
     }
