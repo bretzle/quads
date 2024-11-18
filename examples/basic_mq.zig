@@ -1,7 +1,7 @@
 const std = @import("std");
 const quads = @import("quads");
 
-const gfx = quads.render;
+const gfx = quads.gfx;
 
 const Vertex = extern struct {
     pos: [2]f32,
@@ -17,14 +17,14 @@ pub fn main() !void {
     try quads.init(allocator, .{});
     defer quads.deinit();
 
-    var window = try quads.createWindow(.{ .title = "basic" });
+    var window = try quads.createWindow(.{ .title = "basic mq" });
     defer window.destroy();
 
     try window.createContext(.{});
     window.makeContextCurrent();
     window.swapInterval(1);
 
-    try gfx.init(allocator, .{ .loader = quads.glGetProcAddress });
+    try gfx.init(allocator);
     defer gfx.deinit();
 
     try gfx.text.init();
@@ -36,42 +36,46 @@ pub fn main() !void {
         .{ .pos = .{ 0.0, 0.5 }, .color = .{ 0, 0, 1, 1 } },
     };
 
-    const index_buffer = gfx.createBuffer(u16, gfx.BufferDesc(u16){
-        .type = .index,
-        .usage = .immutable,
-        .content = &indices,
-    });
-    const vertex_buffer = gfx.createBuffer(Vertex, gfx.BufferDesc(Vertex){
-        .type = .vertex,
-        .usage = .immutable,
-        .content = &vertices,
-    });
+    const vertex_buffer = gfx.newBuffer(.vertex, .immutable, &vertices);
+    const index_buffer = gfx.newBuffer(.index, .immutable, &indices);
 
-    const shader = gfx.createShaderProgram(void, void, .{
-        .vertex = vertex,
-        .fragment = fragment,
-    });
+    const bindings = gfx.Bindings{
+        .vertex_buffers = .{ vertex_buffer, .invalid, .invalid, .invalid },
+        .index_buffer = index_buffer,
+    };
 
-    const bindings = gfx.BufferBindings.create(index_buffer, &.{vertex_buffer});
+    const shader = try gfx.newShader(vertex, fragment, .{});
 
-    try quads.run(loop, .{ &window, shader, bindings });
+    const pipeline = try gfx.newPipeline(
+        &.{.{}},
+        &.{
+            .{ .name = "in_pos", .format = .float2 },
+            .{ .name = "in_color", .format = .float4 },
+        },
+        shader,
+        .{},
+    );
+
+    try quads.run(loop, .{ &window, pipeline, &bindings });
 }
 
-fn loop(window: *quads.Window, shader: gfx.ShaderProgram, bindings: gfx.BufferBindings) bool {
+fn loop(window: *quads.Window, pipeline: gfx.PipelineId, bindings: *const gfx.Bindings) bool {
     while (window.getEvent()) |ev| {
+        // std.debug.print("{any}\n", .{ev});
         switch (ev) {
             .close => return false,
+            .framebuffer => |s| gfx.canvas_size = s,
             else => {},
         }
     }
 
     gfx.text.write("Hello, world!", 20, 20, 2);
 
-    gfx.beginDefaultPass(.{}, .{ .width = 640, .height = 480 });
-    gfx.useShaderProgram(shader);
+    gfx.beginDefaultPass(null);
+    gfx.applyPipeline(pipeline);
     gfx.applyBindings(bindings);
     gfx.draw(0, 3, 1);
-    gfx.endPass();
+    gfx.endRenderPass();
 
     gfx.text.render();
 
