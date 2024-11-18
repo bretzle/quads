@@ -54,14 +54,11 @@ pub const text = struct {
 
         font = low.newTexture(.static, .{ .width = 8 * 0x100, .height = 8, .format = .alpha, .min_filter = .nearest, .mag_filter = .nearest }, @as([]const u8, @alignCast(std.mem.sliceAsBytes(&unpacked))));
 
-        vertex_buffer = low.newBuffer(.vertex, .stream, .{ Vertex, max_vertices });
-        index_buffer = low.newBuffer(.index, .stream, .{ u16, max_indices });
+        vertex_buffer = low.newBuffer(Vertex, .{ .typ = .vertex, .usage = .stream, .size = max_vertices });
+        index_buffer = low.newBuffer(u16, .{ .typ = .index, .usage = .stream, .size = max_indices });
 
-        bindings = low.Bindings{
-            .vertex_buffers = .{ vertex_buffer, .invalid, .invalid, .invalid },
-            .index_buffer = index_buffer,
-            .images = .{ font, .invalid, .invalid, .invalid },
-        };
+        bindings = low.Bindings.create(index_buffer, &.{vertex_buffer});
+        bindings.images[0] = font;
 
         shader = try low.newShader(vertex, fragment, .{
             .images = &.{"diffuse"},
@@ -71,12 +68,7 @@ pub const text = struct {
             },
         });
 
-        pipeline = try low.newPipeline(
-            &.{.{}},
-            &.{
-                .{ .name = "position", .format = .float2 },
-                .{ .name = "texcoord", .format = .float2 },
-            },
+        pipeline = low.newPipeline(
             shader,
             .{
                 .color_blend = .{
@@ -119,13 +111,16 @@ pub const text = struct {
     }
 
     pub fn render() void {
-        low.bufferUpdate(vertex_buffer, verticecs.constSlice());
-        low.bufferUpdate(index_buffer, indices.constSlice());
+        const mvp = math.Mat4.ortho(0, @floatFromInt(low.canvas_size.width), @floatFromInt(low.canvas_size.height), 0, -1, 1);
+        const color = [4]f32{ 1, 1, 1, 1 };
+
+        low.updateBuffer(Vertex, vertex_buffer, verticecs.constSlice());
+        low.updateBuffer(u16, index_buffer, indices.constSlice());
 
         low.beginDefaultPass(.nothing);
         low.applyPipeline(pipeline);
-        low.applyBindings(&bindings);
-        low.applyUniforms(&Uniforms{ .mvp = math.Mat4.ortho(0, @floatFromInt(low.canvas_size.width), @floatFromInt(low.canvas_size.height), 0, -1, 1), .color = .{ 1, 1, 1, 1 } });
+        low.applyBindings(bindings);
+        low.applyUniforms(Uniforms, &.{ .mvp = mvp, .color = color });
         low.draw(0, @truncate(indices.len), 1);
         low.endRenderPass();
 

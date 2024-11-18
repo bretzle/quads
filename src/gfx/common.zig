@@ -4,12 +4,56 @@ const g = @import("gl");
 
 pub var canvas_size: quads.Size = undefined;
 
-pub const BufferId = enum(u32) { invalid, _ };
+pub const BufferId = enum(u16) { invalid, _ };
+pub const ShaderId = enum(u16) { invalid, _ };
+pub const ProgramId = enum(u16) { invalid, _ };
+pub const PipelineId = enum(u16) { invalid, _ };
+pub const PassId = enum(u16) { invalid, _ };
+pub const TextureId = enum(u16) { invalid, _ };
+
+pub const Config = struct {
+    loader: *const fn (name: [*c]const u8) ?*anyopaque,
+
+    shaders: u8 = 16,
+    pipelines: u8 = 8,
+    passes: u8 = 8,
+    buffers: u8 = 16,
+    textures: u8 = 16,
+};
+
+pub fn BufferDesc(comptime T: type) type {
+    return struct {
+        typ: BufferType,
+        usage: BufferUsage,
+        step_func: VertexStep = .per_vertex,
+        size: u32 = 0,
+        content: ?[]const T = null,
+
+        pub fn getSize(self: @This()) u32 {
+            std.debug.assert(self.usage != .immutable or self.content != null);
+            std.debug.assert(self.size > 0 or self.content != null);
+
+            if (self.content) |data| return @intCast(data.len * @sizeOf(T));
+            return self.size;
+        }
+    };
+}
 
 pub const Bindings = struct {
-    vertex_buffers: [4]BufferId,
     index_buffer: BufferId,
-    images: ?[4]TextureId = null,
+    vertex_buffers: [4]BufferId,
+    vertex_buffer_offsets: [4]u32 = [_]u32{0} ** 4,
+    images: [8]TextureId = [_]TextureId{.invalid} ** 8,
+
+    pub fn create(index_buffer: BufferId, vert_buffers: []const BufferId) Bindings {
+        var vbuffers: [4]BufferId = [_]BufferId{.invalid} ** 4;
+        for (vert_buffers, 0..) |vb, i| vbuffers[i] = vb;
+
+        return .{
+            .index_buffer = index_buffer,
+            .vertex_buffers = vbuffers,
+        };
+    }
 };
 
 pub const BufferType = enum {
@@ -38,8 +82,6 @@ pub const BufferUsage = enum {
     }
 };
 
-pub const ShaderId = enum(u32) { invalid, _ };
-
 pub const UniformType = enum {
     float1,
     float2,
@@ -67,7 +109,7 @@ pub const UniformType = enum {
 };
 
 pub const UniformDesc = struct {
-    name: []const u8,
+    name: [:0]const u8,
     typ: UniformType,
     array_count: usize = 1,
 };
@@ -77,110 +119,7 @@ pub const ShaderMeta = struct {
     uniforms: []const UniformDesc = &.{},
 };
 
-pub const ProgramId = enum(u32) { invalid, _ };
-
-pub const PipelineId = enum(u32) { invalid, _ };
-
 pub const VertexStep = enum { per_vertex, per_instance };
-
-pub const VertexFormat = enum {
-    float1,
-    float2,
-    float3,
-    float4,
-    byte1,
-    byte2,
-    byte3,
-    byte4,
-    short1,
-    short2,
-    short3,
-    short4,
-    int1,
-    int2,
-    int3,
-    int4,
-    mat4,
-
-    pub fn sizeBytes(self: VertexFormat) i32 {
-        return switch (self) {
-            .float1 => 1 * 4,
-            .float2 => 2 * 4,
-            .float3 => 3 * 4,
-            .float4 => 4 * 4,
-            .byte1 => 1,
-            .byte2 => 2,
-            .byte3 => 3,
-            .byte4 => 4,
-            .short1 => 1 * 2,
-            .short2 => 2 * 2,
-            .short3 => 3 * 2,
-            .short4 => 4 * 2,
-            .int1 => 1 * 4,
-            .int2 => 2 * 4,
-            .int3 => 3 * 4,
-            .int4 => 4 * 4,
-            .mat4 => 16 * 4,
-        };
-    }
-
-    pub fn components(self: VertexFormat) i32 {
-        return switch (self) {
-            .float1 => 1,
-            .float2 => 2,
-            .float3 => 3,
-            .float4 => 4,
-            .byte1 => 1,
-            .byte2 => 2,
-            .byte3 => 3,
-            .byte4 => 4,
-            .short1 => 1,
-            .short2 => 2,
-            .short3 => 3,
-            .short4 => 4,
-            .int1 => 1,
-            .int2 => 2,
-            .int3 => 3,
-            .int4 => 4,
-            .mat4 => 16,
-        };
-    }
-
-    pub fn gl(self: VertexFormat) u32 {
-        return switch (self) {
-            .float1 => g.FLOAT,
-            .float2 => g.FLOAT,
-            .float3 => g.FLOAT,
-            .float4 => g.FLOAT,
-            .byte1 => g.UNSIGNED_BYTE,
-            .byte2 => g.UNSIGNED_BYTE,
-            .byte3 => g.UNSIGNED_BYTE,
-            .byte4 => g.UNSIGNED_BYTE,
-            .short1 => g.UNSIGNED_SHORT,
-            .short2 => g.UNSIGNED_SHORT,
-            .short3 => g.UNSIGNED_SHORT,
-            .short4 => g.UNSIGNED_SHORT,
-            .int1 => g.UNSIGNED_INT,
-            .int2 => g.UNSIGNED_INT,
-            .int3 => g.UNSIGNED_INT,
-            .int4 => g.UNSIGNED_INT,
-            .mat4 => g.FLOAT,
-        };
-    }
-};
-
-pub const BufferLayout = struct {
-    stride: i32 = 0,
-    step_func: VertexStep = .per_vertex,
-    step_rate: i32 = 1,
-};
-
-pub const VertexAttribute = struct {
-    name: []const u8,
-    format: VertexFormat,
-    buffer_index: usize = 0,
-    pass_as_float: bool = true,
-};
 
 pub const CullFace = enum { nothing, front, back };
 
@@ -360,10 +299,6 @@ pub const PassAction = union(enum) {
         stencil: ?i32 = null,
     },
 };
-
-pub const PassId = enum(u32) { invalid, _ };
-
-pub const TextureId = enum(u32) { invalid, _ };
 
 pub const TextureAccess = enum { static, render_target };
 

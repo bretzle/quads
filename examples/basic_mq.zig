@@ -24,7 +24,7 @@ pub fn main() !void {
     window.makeContextCurrent();
     window.swapInterval(1);
 
-    try gfx.init(allocator);
+    try gfx.init(allocator, .{ .loader = quads.glGetProcAddress });
     defer gfx.deinit();
 
     try gfx.text.init();
@@ -36,8 +36,8 @@ pub fn main() !void {
         .{ .pos = .{ 0.0, 0.5 }, .color = .{ 0, 0, 1, 1 } },
     };
 
-    const vertex_buffer = gfx.newBuffer(.vertex, .immutable, &vertices);
-    const index_buffer = gfx.newBuffer(.index, .immutable, &indices);
+    const vertex_buffer = gfx.newBuffer(Vertex, .{ .typ = .vertex, .usage = .immutable, .content = &vertices });
+    const index_buffer = gfx.newBuffer(u16, .{ .typ = .index, .usage = .immutable, .content = &indices });
 
     const bindings = gfx.Bindings{
         .vertex_buffers = .{ vertex_buffer, .invalid, .invalid, .invalid },
@@ -46,20 +46,12 @@ pub fn main() !void {
 
     const shader = try gfx.newShader(vertex, fragment, .{});
 
-    const pipeline = try gfx.newPipeline(
-        &.{.{}},
-        &.{
-            .{ .name = "in_pos", .format = .float2 },
-            .{ .name = "in_color", .format = .float4 },
-        },
-        shader,
-        .{},
-    );
+    const pipeline = gfx.newPipeline(shader, .{});
 
-    try quads.run(loop, .{ &window, pipeline, &bindings });
+    try quads.run(loop, .{ &window, pipeline, bindings });
 }
 
-fn loop(window: *quads.Window, pipeline: gfx.PipelineId, bindings: *const gfx.Bindings) bool {
+fn loop(window: *quads.Window, pipeline: gfx.PipelineId, bindings: gfx.Bindings) bool {
     while (window.getEvent()) |ev| {
         // std.debug.print("{any}\n", .{ev});
         switch (ev) {

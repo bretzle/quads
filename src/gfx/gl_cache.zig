@@ -7,11 +7,6 @@ const CachedTexture = struct {
     texture: u32 = 0,
 };
 
-const CachedAttribute = struct {
-    attr: @import("renderer_low.zig").GlVertexAttribute,
-    raw: u32,
-};
-
 const Self = @This();
 
 stored_index_buffer: u32 = 0,
@@ -31,9 +26,7 @@ stencil: ?gfx.StencilState = null,
 color_write: gfx.ColorMask = .{ true, true, true, true },
 cull_face: gfx.CullFace = .nothing,
 
-// TODO std.BoundedArray
 textures: [12]CachedTexture = [_]CachedTexture{.{}} ** 12,
-attributes: [16]?CachedAttribute = [_]?CachedAttribute{null} ** 16,
 
 pub fn bindBuffer(self: *Self, gl_target: u32, buffer: u32, index_type: ?u32) void {
     if (gl_target == gl.ARRAY_BUFFER) {
