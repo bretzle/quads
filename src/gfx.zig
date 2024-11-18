@@ -52,7 +52,12 @@ pub const text = struct {
             }
         }
 
-        font = low.createTexture(.static, .{ .width = 8 * 0x100, .height = 8, .format = .alpha, .min_filter = .nearest, .mag_filter = .nearest }, @as([]const u8, @alignCast(std.mem.sliceAsBytes(&unpacked))));
+        font = low.createTexture(.{
+            .width = 8 * 0x100,
+            .height = 8,
+            .format = .alpha,
+            .content = &unpacked,
+        });
 
         vertex_buffer = low.createBuffer(Vertex, .{ .typ = .vertex, .usage = .stream, .size = max_vertices });
         index_buffer = low.createBuffer(u16, .{ .typ = .index, .usage = .stream, .size = max_indices });

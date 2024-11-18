@@ -302,18 +302,6 @@ pub const PassAction = union(enum) {
 
 pub const TextureAccess = enum { static, render_target };
 
-pub const TextureKind = enum {
-    texture_2d,
-    cube_map,
-
-    pub fn gl(self: TextureKind) u32 {
-        return switch (self) {
-            .texture_2d => g.TEXTURE_2D,
-            .cube_map => g.TEXTURE_CUBE_MAP,
-        };
-    }
-};
-
 pub const TextureFormat = enum {
     rgb8,
     rgba8,
@@ -396,15 +384,17 @@ pub const FilterMode = enum {
 
 pub const MipmapFilterMode = enum { none, linear, nearest };
 
-pub const TextureParams = struct {
-    kind: TextureKind = .texture_2d,
-    format: TextureFormat = .rgba8,
-    wrap: TextureWrap = .clamp,
-    min_filter: FilterMode = .linear,
-    mag_filter: FilterMode = .linear,
-    mipmap_filter: MipmapFilterMode = .none,
+pub const TextureDesc = struct {
+    access: TextureAccess = .static,
     width: u32,
     height: u32,
+    format: TextureFormat = .rgba8,
+    min_filter: FilterMode = .nearest,
+    mag_filter: FilterMode = .nearest,
+    mipmap_filter: MipmapFilterMode = .none,
+    wrap_u: TextureWrap = .clamp,
+    wrap_v: TextureWrap = .clamp,
     allocate_mipmaps: bool = false,
     sample_count: i32 = 0,
+    content: ?*const anyopaque = null,
 };

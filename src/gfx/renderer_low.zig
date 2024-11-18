@@ -36,7 +36,18 @@ const GlPipeline = struct {
 
 const GlTexture = struct {
     raw: u32,
-    params: gfx.TextureParams,
+    params: struct {
+        format: gfx.TextureFormat,
+        wrap_u: gfx.TextureWrap,
+        wrap_v: gfx.TextureWrap,
+        min_filter: gfx.FilterMode,
+        mag_filter: gfx.FilterMode,
+        mipmap_filter: gfx.MipmapFilterMode,
+        width: u32,
+        height: u32,
+        allocate_mipmaps: bool,
+        sample_count: i32,
+    },
 };
 
 const GlRenderPass = struct {
@@ -197,39 +208,12 @@ pub fn createPipeline(shader: gfx.ShaderId, params: gfx.PipelineParams) gfx.Pipe
     });
 }
 
-pub fn createRenderTexture(params: gfx.TextureParams) gfx.TextureId {
-    return createTexture(.render_target, params, {});
-}
+pub fn createTexture(desc: gfx.TextureDesc) gfx.TextureId {
+    if (desc.access != .render_target) assert(desc.sample_count == 0);
 
-pub fn createTextureFromBytes(width: u32, height: u32, format: gfx.TextureFormat, bytes: []const u8) gfx.TextureId {
-    assert(width * height * format.bytes() == bytes.len);
+    const internal_format, const format, const pixel_type = desc.format.gl();
 
-    const params = gfx.TextureParams{
-        .width = width,
-        .height = height,
-        .format = format,
-    };
-
-    return createTexture(.static, params, bytes);
-}
-
-pub fn createTexture(access: gfx.TextureAccess, params: gfx.TextureParams, source: anytype) gfx.TextureId {
-    const T = @TypeOf(source);
-    meta.compileAssert(T == void or T == []const u8, "todo", .{});
-
-    if (T == []u8 or T == []const u8) {
-        assert(params.kind == .texture_2d);
-        assert(params.format.size(params.width, params.height) == source.len);
-    }
-
-    if (access != .render_target) {
-        assert(params.sample_count == 0);
-    }
-
-    const kind = params.kind.gl();
-    const internal_format, const format, const pixel_type = params.format.gl();
-
-    if (access == .render_target and params.sample_count != 0) {
+    if (desc.access == .render_target and desc.sample_count != 0) {
         @panic("1");
     }
 
@@ -237,57 +221,49 @@ pub fn createTexture(access: gfx.TextureAccess, params: gfx.TextureParams, sourc
 
     var texture: u32 = 0;
     gl.GenTextures(1, @ptrCast(&texture));
-    cache.bindTexture(0, kind, texture);
+    cache.bindTexture(0, gl.TEXTURE_2D, texture);
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
-    if (params.format == .alpha) {
-        gl.TexParameteri(kind, gl.TEXTURE_SWIZZLE_A, gl.RED);
+    if (desc.format == .alpha) {
+        gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_A, gl.RED);
     }
 
-    switch (T) {
-        void => {
-            gl.TexImage2D(
-                gl.TEXTURE_2D,
-                0,
-                @intCast(internal_format),
-                @intCast(params.width),
-                @intCast(params.height),
-                0,
-                format,
-                pixel_type,
-                null,
-            );
-        },
-        []u8, []const u8 => {
-            gl.TexImage2D(
-                gl.TEXTURE_2D,
-                0,
-                @intCast(internal_format),
-                @intCast(params.width),
-                @intCast(params.height),
-                0,
-                format,
-                pixel_type,
-                @ptrCast(source),
-            );
-        },
-        else => @compileError("unsupported type: " ++ @typeName(T)),
-    }
+    gl.TexImage2D(
+        gl.TEXTURE_2D,
+        0,
+        @intCast(internal_format),
+        @intCast(desc.width),
+        @intCast(desc.height),
+        0,
+        format,
+        pixel_type,
+        desc.content,
+    );
 
-    const wrap = params.wrap.gl();
-    const min_filter = params.min_filter.filter(params.mipmap_filter);
-    const mag_filter = params.mag_filter.gl();
+    const min_filter = desc.min_filter.filter(desc.mipmap_filter);
+    const mag_filter = desc.mag_filter.gl();
 
-    gl.TexParameteri(kind, gl.TEXTURE_WRAP_S, @intCast(wrap));
-    gl.TexParameteri(kind, gl.TEXTURE_WRAP_T, @intCast(wrap));
-    gl.TexParameteri(kind, gl.TEXTURE_MIN_FILTER, @intCast(min_filter));
-    gl.TexParameteri(kind, gl.TEXTURE_MAG_FILTER, @intCast(mag_filter));
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, @intCast(desc.wrap_u.gl()));
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, @intCast(desc.wrap_v.gl()));
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, @intCast(min_filter));
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, @intCast(mag_filter));
 
     cache.restoreTextureBinding(0);
 
     return textures.add(.{
         .raw = texture,
-        .params = params,
+        .params = .{
+            .format = desc.format,
+            .wrap_u = desc.wrap_u,
+            .wrap_v = desc.wrap_v,
+            .min_filter = desc.min_filter,
+            .mag_filter = desc.mag_filter,
+            .mipmap_filter = desc.mipmap_filter,
+            .width = desc.width,
+            .height = desc.height,
+            .allocate_mipmaps = desc.allocate_mipmaps,
+            .sample_count = desc.sample_count,
+        },
     });
 }
 
@@ -470,7 +446,7 @@ pub fn applyBindings(bindings: gfx.Bindings) void {
     for (bindings.images, 0..) |image, i| {
         if (image == .invalid) break;
         const texture = textures.get(image);
-        cache.bindTexture(@truncate(i), texture.params.kind.gl(), texture.raw);
+        cache.bindTexture(@truncate(i), gl.TEXTURE_2D, texture.raw);
     }
 }
 
