@@ -86,7 +86,7 @@ pub fn deinit() void {
     textures.deinit();
 }
 
-pub fn newBuffer(comptime T: type, desc: gfx.BufferDesc(T)) gfx.BufferId {
+pub fn createBuffer(comptime T: type, desc: gfx.BufferDesc(T)) gfx.BufferId {
     const typ = desc.typ.gl();
     const usage = desc.usage.gl();
 
@@ -139,9 +139,9 @@ pub fn updateBuffer(comptime T: type, buffer: gfx.BufferId, data: []const T) voi
     cache.restoreBufferBinding(gl_target);
 }
 
-pub fn newShader(vertex: [:0]const u8, fragment: [:0]const u8, details: gfx.ShaderMeta) !gfx.ShaderId {
-    const vshader = try loadShader(gl.VERTEX_SHADER, vertex);
-    const fshader = try loadShader(gl.FRAGMENT_SHADER, fragment);
+pub fn createShader(vertex: [:0]const u8, fragment: [:0]const u8, details: gfx.ShaderMeta) !gfx.ShaderId {
+    const vshader = try compileShader(gl.VERTEX_SHADER, vertex);
+    const fshader = try compileShader(gl.FRAGMENT_SHADER, fragment);
 
     const program = gl.CreateProgram();
     gl.AttachShader(program, @intFromEnum(vshader));
@@ -190,18 +190,18 @@ pub fn newShader(vertex: [:0]const u8, fragment: [:0]const u8, details: gfx.Shad
     });
 }
 
-pub fn newPipeline(shader: gfx.ShaderId, params: gfx.PipelineParams) gfx.PipelineId {
+pub fn createPipeline(shader: gfx.ShaderId, params: gfx.PipelineParams) gfx.PipelineId {
     return pipelines.add(.{
         .shader = shader,
         .params = params,
     });
 }
 
-pub fn newRenderTexture(params: gfx.TextureParams) gfx.TextureId {
-    return newTexture(.render_target, params, {});
+pub fn createRenderTexture(params: gfx.TextureParams) gfx.TextureId {
+    return createTexture(.render_target, params, {});
 }
 
-pub fn newTextureFromBytes(width: u32, height: u32, format: gfx.TextureFormat, bytes: []const u8) gfx.TextureId {
+pub fn createTextureFromBytes(width: u32, height: u32, format: gfx.TextureFormat, bytes: []const u8) gfx.TextureId {
     assert(width * height * format.bytes() == bytes.len);
 
     const params = gfx.TextureParams{
@@ -210,10 +210,10 @@ pub fn newTextureFromBytes(width: u32, height: u32, format: gfx.TextureFormat, b
         .format = format,
     };
 
-    return newTexture(.static, params, bytes);
+    return createTexture(.static, params, bytes);
 }
 
-pub fn newTexture(access: gfx.TextureAccess, params: gfx.TextureParams, source: anytype) gfx.TextureId {
+pub fn createTexture(access: gfx.TextureAccess, params: gfx.TextureParams, source: anytype) gfx.TextureId {
     const T = @TypeOf(source);
     meta.compileAssert(T == void or T == []const u8, "todo", .{});
 
@@ -318,11 +318,11 @@ pub fn updateTexturePart(texture: gfx.TextureId, x: i32, y: i32, width: u32, hei
     cache.restoreTextureBinding(0);
 }
 
-pub fn newRenderPass(color_img: gfx.TextureId, depth_img: ?gfx.TextureId) !gfx.PassId {
-    return newRenderPassMrt(&.{color_img}, null, depth_img);
+pub fn createRenderPass(color_img: gfx.TextureId, depth_img: ?gfx.TextureId) !gfx.PassId {
+    return createRenderPassMrt(&.{color_img}, null, depth_img);
 }
 
-pub fn newRenderPassMrt(color_img: []const gfx.TextureId, resolve_img: ?[]const gfx.TextureId, depth_img: ?gfx.TextureId) !gfx.PassId {
+pub fn createRenderPassMrt(color_img: []const gfx.TextureId, resolve_img: ?[]const gfx.TextureId, depth_img: ?gfx.TextureId) !gfx.PassId {
     assert(color_img.len != 0 or depth_img != null);
 
     var gl_fb: u32 = 0;
@@ -578,7 +578,7 @@ pub fn checkError() void {
 
 //
 
-fn loadShader(shader_type: u32, source: []const u8) !gfx.ShaderId {
+fn compileShader(shader_type: u32, source: []const u8) !gfx.ShaderId {
     const shader = gl.CreateShader(shader_type);
     assert(shader != 0);
 

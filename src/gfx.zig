@@ -52,15 +52,15 @@ pub const text = struct {
             }
         }
 
-        font = low.newTexture(.static, .{ .width = 8 * 0x100, .height = 8, .format = .alpha, .min_filter = .nearest, .mag_filter = .nearest }, @as([]const u8, @alignCast(std.mem.sliceAsBytes(&unpacked))));
+        font = low.createTexture(.static, .{ .width = 8 * 0x100, .height = 8, .format = .alpha, .min_filter = .nearest, .mag_filter = .nearest }, @as([]const u8, @alignCast(std.mem.sliceAsBytes(&unpacked))));
 
-        vertex_buffer = low.newBuffer(Vertex, .{ .typ = .vertex, .usage = .stream, .size = max_vertices });
-        index_buffer = low.newBuffer(u16, .{ .typ = .index, .usage = .stream, .size = max_indices });
+        vertex_buffer = low.createBuffer(Vertex, .{ .typ = .vertex, .usage = .stream, .size = max_vertices });
+        index_buffer = low.createBuffer(u16, .{ .typ = .index, .usage = .stream, .size = max_indices });
 
         bindings = low.Bindings.create(index_buffer, &.{vertex_buffer});
         bindings.images[0] = font;
 
-        shader = try low.newShader(vertex, fragment, .{
+        shader = try low.createShader(vertex, fragment, .{
             .images = &.{"diffuse"},
             .uniforms = &.{
                 .{ .name = "mvp", .typ = .mat4 },
@@ -68,7 +68,7 @@ pub const text = struct {
             },
         });
 
-        pipeline = low.newPipeline(
+        pipeline = low.createPipeline(
             shader,
             .{
                 .color_blend = .{

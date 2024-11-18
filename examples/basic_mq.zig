@@ -36,17 +36,14 @@ pub fn main() !void {
         .{ .pos = .{ 0.0, 0.5 }, .color = .{ 0, 0, 1, 1 } },
     };
 
-    const vertex_buffer = gfx.newBuffer(Vertex, .{ .typ = .vertex, .usage = .immutable, .content = &vertices });
-    const index_buffer = gfx.newBuffer(u16, .{ .typ = .index, .usage = .immutable, .content = &indices });
+    const vertex_buffer = gfx.createBuffer(Vertex, .{ .typ = .vertex, .usage = .immutable, .content = &vertices });
+    const index_buffer = gfx.createBuffer(u16, .{ .typ = .index, .usage = .immutable, .content = &indices });
 
-    const bindings = gfx.Bindings{
-        .vertex_buffers = .{ vertex_buffer, .invalid, .invalid, .invalid },
-        .index_buffer = index_buffer,
-    };
+    const bindings = gfx.Bindings.create(index_buffer, &.{vertex_buffer});
 
-    const shader = try gfx.newShader(vertex, fragment, .{});
+    const shader = try gfx.createShader(vertex, fragment, .{});
 
-    const pipeline = gfx.newPipeline(shader, .{});
+    const pipeline = gfx.createPipeline(shader, .{});
 
     try quads.run(loop, .{ &window, pipeline, bindings });
 }
