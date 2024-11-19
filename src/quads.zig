@@ -8,8 +8,7 @@ const platform = switch (builtin.os.tag) {
 
 pub const meta = @import("meta.zig");
 pub const math = @import("math.zig");
-pub const gfx = @import("gfx.zig");
-pub const render = @import("render/render.zig");
+pub const gfx = @import("gfx/gfx.zig");
 
 pub var allocator: std.mem.Allocator = undefined;
 pub var init_options: InitOptions = undefined;

@@ -1,9 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const gfx = @import("common.zig");
 const gl = @import("gl");
 const meta = @import("../meta.zig");
+const math = @import("../math.zig");
 
+pub const text = @import("text.zig");
+pub usingnamespace @import("types.zig");
+pub usingnamespace @import("descriptions.zig");
+
+const gfx = @This();
 const Cache = @import("gl_cache.zig");
 const Pool = @import("../Pool.zig").Pool;
 
@@ -150,7 +155,7 @@ pub fn updateBuffer(comptime T: type, buffer: gfx.BufferId, data: []const T) voi
     cache.restoreBufferBinding(gl_target);
 }
 
-pub fn createShader(vertex: [:0]const u8, fragment: [:0]const u8, details: gfx.ShaderMeta) !gfx.ShaderId {
+pub fn createShader(vertex: [:0]const u8, fragment: [:0]const u8, details: gfx.ShaderDesc) !gfx.ShaderId {
     const vshader = try compileShader(gl.VERTEX_SHADER, vertex);
     const fshader = try compileShader(gl.FRAGMENT_SHADER, fragment);
 

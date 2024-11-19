@@ -1,6 +1,6 @@
 const std = @import("std");
 const gl = @import("gl");
-const gfx = @import("common.zig");
+const gfx = @import("types.zig");
 
 const CachedTexture = struct {
     target: u32 = 0,

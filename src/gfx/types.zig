@@ -11,51 +11,6 @@ pub const PipelineId = enum(u16) { invalid, _ };
 pub const PassId = enum(u16) { invalid, _ };
 pub const TextureId = enum(u16) { invalid, _ };
 
-pub const Config = struct {
-    loader: *const fn (name: [*c]const u8) ?*anyopaque,
-
-    shaders: u8 = 16,
-    pipelines: u8 = 8,
-    passes: u8 = 8,
-    buffers: u8 = 16,
-    textures: u8 = 16,
-};
-
-pub fn BufferDesc(comptime T: type) type {
-    return struct {
-        typ: BufferType,
-        usage: BufferUsage,
-        step_func: VertexStep = .per_vertex,
-        size: u32 = 0,
-        content: ?[]const T = null,
-
-        pub fn getSize(self: @This()) u32 {
-            std.debug.assert(self.usage != .immutable or self.content != null);
-            std.debug.assert(self.size > 0 or self.content != null);
-
-            if (self.content) |data| return @intCast(data.len * @sizeOf(T));
-            return self.size;
-        }
-    };
-}
-
-pub const Bindings = struct {
-    index_buffer: BufferId,
-    vertex_buffers: [4]BufferId,
-    vertex_buffer_offsets: [4]u32 = [_]u32{0} ** 4,
-    images: [8]TextureId = [_]TextureId{.invalid} ** 8,
-
-    pub fn create(index_buffer: BufferId, vert_buffers: []const BufferId) Bindings {
-        var vbuffers: [4]BufferId = [_]BufferId{.invalid} ** 4;
-        for (vert_buffers, 0..) |vb, i| vbuffers[i] = vb;
-
-        return .{
-            .index_buffer = index_buffer,
-            .vertex_buffers = vbuffers,
-        };
-    }
-};
-
 pub const BufferType = enum {
     vertex,
     index,
@@ -106,17 +61,6 @@ pub const UniformType = enum {
             .mat4 => 64,
         };
     }
-};
-
-pub const UniformDesc = struct {
-    name: [:0]const u8,
-    typ: UniformType,
-    array_count: usize = 1,
-};
-
-pub const ShaderMeta = struct {
-    images: []const []const u8 = &.{},
-    uniforms: []const UniformDesc = &.{},
 };
 
 pub const VertexStep = enum { per_vertex, per_instance };
@@ -383,18 +327,3 @@ pub const FilterMode = enum {
 };
 
 pub const MipmapFilterMode = enum { none, linear, nearest };
-
-pub const TextureDesc = struct {
-    access: TextureAccess = .static,
-    width: u32,
-    height: u32,
-    format: TextureFormat = .rgba8,
-    min_filter: FilterMode = .nearest,
-    mag_filter: FilterMode = .nearest,
-    mipmap_filter: MipmapFilterMode = .none,
-    wrap_u: TextureWrap = .clamp,
-    wrap_v: TextureWrap = .clamp,
-    allocate_mipmaps: bool = false,
-    sample_count: i32 = 0,
-    content: ?*const anyopaque = null,
-};

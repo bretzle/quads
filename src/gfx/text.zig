@@ -1,7 +1,6 @@
 const std = @import("std");
-const types = @import("types.zig");
 const math = @import("../math.zig");
-const gfx = @import("render.zig");
+const low = @import("gfx.zig");
 
 const Vertex = extern struct {
     pos: [2]f32,
@@ -16,12 +15,12 @@ const Uniforms = extern struct {
 const max_vertices = 1024;
 const max_indices = 512;
 
-var vertex_buffer: types.Buffer = .invalid;
-var index_buffer: types.Buffer = .invalid;
-var bindings: types.BufferBindings = undefined;
-var shader: types.ShaderProgram = .invalid;
-var pipeline: types.RenderState = .{};
-var font: types.Image = .invalid;
+var vertex_buffer: low.BufferId = .invalid;
+var index_buffer: low.BufferId = .invalid;
+var bindings: low.Bindings = undefined;
+var shader: low.ShaderId = .invalid;
+var pipeline: low.PipelineId = .invalid;
+var font: low.TextureId = .invalid;
 
 var verticecs = std.BoundedArray(Vertex, max_vertices){};
 var indices = std.BoundedArray(u16, max_indices){};
@@ -41,64 +40,37 @@ pub fn init() !void {
         }
     }
 
-    // font = low.newTexture(
-    //     .static,
-    //     .{ .width = 8 * 0x100, .height = 8, .format = .alpha, .min_filter = .nearest, .mag_filter = .nearest },
-    //     @as([]const u8, @alignCast(std.mem.sliceAsBytes(&unpacked))),
-    // );
-    font = gfx.createImage(.{
+    font = low.createTexture(.{
         .width = 8 * 0x100,
         .height = 8,
-        .pixel_format = .alpha, // TODO alpha
+        .format = .alpha,
         .content = &unpacked,
     });
 
-    // vertex_buffer = low.newBuffer(.vertex, .stream, .{ Vertex, max_vertices });
-    // index_buffer = low.newBuffer(.index, .stream, .{ u16, max_indices });
-    index_buffer = gfx.createBuffer(u16, .{ .type = .index, .usage = .stream, .size = max_indices });
-    vertex_buffer = gfx.createBuffer(Vertex, .{ .type = .vertex, .usage = .stream, .size = max_vertices });
+    vertex_buffer = low.createBuffer(Vertex, .{ .typ = .vertex, .usage = .stream, .size = max_vertices });
+    index_buffer = low.createBuffer(u16, .{ .typ = .index, .usage = .stream, .size = max_indices });
 
-    // bindings = low.Bindings{
-    //     .vertex_buffers = .{ vertex_buffer, .invalid, .invalid, .invalid },
-    //     .index_buffer = index_buffer,
-    //     .images = .{ font, .invalid, .invalid, .invalid },
-    // };
-    bindings = gfx.BufferBindings.create(index_buffer, &.{vertex_buffer});
-    bindings.bindImage(0, font);
+    bindings = low.Bindings.create(index_buffer, &.{vertex_buffer});
+    bindings.images[0] = font;
 
-    // std.debug.print("{any}\n", .{bindings});
-
-    // shader = try low.newShader(vertex, fragment, .{
-    //     .images = &.{"diffuse"},
-    //     .uniforms = &.{
-    //         .{ .name = "mvp", .typ = .mat4 },
-    //         .{ .name = "color", .typ = .float4 },
-    //     },
-    // });
-    shader = gfx.createShaderProgram(VUniform, FUniform, .{ .vertex = vertex, .fragment = fragment });
-
-    // pipeline = try low.newPipeline(
-    //     &.{.{}},
-    //     &.{
-    //         .{ .name = "position", .format = .float2 },
-    //         .{ .name = "texcoord", .format = .float2 },
-    //     },
-    //     shader,
-    //     .{
-    //         .color_blend = .{
-    //             .equation = .add,
-    //             .sfactor = .{ .value = .source_alpha },
-    //             .dfactor = .{ .one_minus_value = .source_alpha },
-    //         },
-    //     },
-    // );
-    pipeline = gfx.RenderState{
-        .blend = .{
-            .op_rgb = .add,
-            .src_factor_rgb = .src_alpha,
-            .dst_factor_rgb = .one_minus_src_alpha,
+    shader = try low.createShader(vertex, fragment, .{
+        .images = &.{"diffuse"},
+        .uniforms = &.{
+            .{ .name = "mvp", .typ = .mat4 },
+            .{ .name = "color", .typ = .float4 },
         },
-    };
+    });
+
+    pipeline = low.createPipeline(
+        shader,
+        .{
+            .color_blend = .{
+                .equation = .add,
+                .sfactor = .{ .value = .source_alpha },
+                .dfactor = .{ .one_minus_value = .source_alpha },
+            },
+        },
+    );
 }
 
 pub fn print(comptime fmt: []const u8, args: anytype, x: f32, y: f32, scale: f32) void {
@@ -119,47 +91,35 @@ pub fn write(str: []const u8, x: f32, y: f32, scale: f32) void {
         indices.appendSliceAssumeCapacity(&.{ offset + 0, offset + 1, offset + 2, offset + 0, offset + 2, offset + 3 });
 
         // zig fmt: off
-        verticecs.appendSliceAssumeCapacity(&.{
-            .{ .pos = .{ pos[0],              pos[1] + glyph_size }, .uv = .{ uvx * char,       1 } }, // bottom left
-            .{ .pos = .{ pos[0] + glyph_size, pos[1] + glyph_size }, .uv = .{ uvx * (char + 1), 1 } }, // bottom right
-            .{ .pos = .{ pos[0] + glyph_size, pos[1]              }, .uv = .{ uvx * (char + 1), 0 } }, // top right
-            .{ .pos = .{ pos[0],              pos[1]              }, .uv = .{ uvx * char,       0 } }, // top left
-        });
-        // zig fmt: on
+            verticecs.appendSliceAssumeCapacity(&.{
+                .{ .pos = .{ pos[0],              pos[1] + glyph_size }, .uv = .{ uvx * char,       1 } }, // bottom left
+                .{ .pos = .{ pos[0] + glyph_size, pos[1] + glyph_size }, .uv = .{ uvx * (char + 1), 1 } }, // bottom right
+                .{ .pos = .{ pos[0] + glyph_size, pos[1]              }, .uv = .{ uvx * (char + 1), 0 } }, // top right
+                .{ .pos = .{ pos[0],              pos[1]              }, .uv = .{ uvx * char,       0 } }, // top left
+            });
+            // zig fmt: on
 
         pos[0] += glyph_size;
     }
 }
 
 pub fn render() void {
-    const mvp = math.Mat4.ortho(0, 640.0, 480.0, 0, -1, 1);
+    const mvp = math.Mat4.ortho(0, @floatFromInt(low.canvas_size.width), @floatFromInt(low.canvas_size.height), 0, -1, 1);
     const color = [4]f32{ 1, 1, 1, 1 };
-    _ = color; // autofix
 
-    gfx.updateBuffer(Vertex, vertex_buffer, verticecs.constSlice());
-    gfx.updateBuffer(u16, index_buffer, indices.constSlice());
+    low.updateBuffer(Vertex, vertex_buffer, verticecs.constSlice());
+    low.updateBuffer(u16, index_buffer, indices.constSlice());
 
-    gfx.beginDefaultPass(gfx.ClearCommand.nothing, .{ .width = 640, .height = 480 });
-    gfx.setRenderState(pipeline);
-    gfx.applyBindings(bindings);
-    gfx.useShaderProgram(shader);
-    gfx.setShaderProgramUniformBlock(VUniform, shader, .vertex, &.{ .mvp = mvp });
-    // gfx.setShaderProgramUniformBlock(FUniform, shader, .fragment, &.{ .color = color });
-    gfx.draw(0, @intCast(indices.len), 1);
-    gfx.endPass();
+    low.beginDefaultPass(.nothing);
+    low.applyPipeline(pipeline);
+    low.applyBindings(bindings);
+    low.applyUniforms(Uniforms, &.{ .mvp = mvp, .color = color });
+    low.draw(0, @truncate(indices.len), 1);
+    low.endRenderPass();
 
     verticecs.len = 0;
     indices.len = 0;
 }
-
-const VUniform = extern struct {
-    pub const metadata = .{
-        .uniforms = .{ .mvp = .{ .type = .mat4, .array_count = 1 } },
-        // .images = .{"diffuse"},
-    };
-
-    mvp: math.Mat4,
-};
 
 const vertex =
     \\#version 330
@@ -176,27 +136,16 @@ const vertex =
     \\}
 ;
 
-const FUniform = extern struct {
-    pub const metadata = .{
-        .uniforms = .{ .color = .{ .type = .float4, .array_count = 1 } },
-        // .images = .{"diffuse"},
-    };
-
-    color: [4]f32,
-};
-
 const fragment =
     \\#version 330
     \\
     \\in vec2 uv;
     \\
     \\uniform sampler2D diffuse;
-    \\ vec4 color = vec4(1, 0.5, 0.25, 1);
+    \\uniform vec4 color;
     \\
     \\void main() {
-    // \\  vec4 x = texture(diffuse, uv);
-    // \\  gl_FragColor = vec4(x);
-    \\  gl_FragColor = vec4(color.a * texture(diffuse, uv));
+    \\  gl_FragColor = vec4(color.rgb, color.a * texture(diffuse, uv));
     \\}
 ;
 
