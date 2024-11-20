@@ -19,20 +19,39 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const exe = b.addExecutable(.{
-        .name = "basic mq",
-        .root_source_file = b.path("examples/basic_mq.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.root_module.addImport("quads", quads);
+    {
+        const exe = b.addExecutable(.{
+            .name = "basic mq",
+            .root_source_file = b.path("examples/basic_mq.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.root_module.addImport("quads", quads);
 
-    b.installArtifact(exe);
+        b.installArtifact(exe);
 
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+        const run_step = b.step("run", "Run the app");
+        run_step.dependOn(&run_cmd.step);
+    }
+
+    {
+        const exe = b.addExecutable(.{
+            .name = "text",
+            .root_source_file = b.path("examples/text.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.root_module.addImport("quads", quads);
+
+        b.installArtifact(exe);
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+        const run_step = b.step("text", "Run the app");
+        run_step.dependOn(&run_cmd.step);
+    }
 
     const t = b.addTest(.{ .root_source_file = b.path("src/quads.zig") });
     t.root_module.addImport("gl", gl);

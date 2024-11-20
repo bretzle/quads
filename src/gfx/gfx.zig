@@ -285,7 +285,7 @@ pub fn updateTexturePart(texture: gfx.TextureId, x: i32, y: i32, width: u32, hei
     assert(@as(u32, @bitCast(y)) +% height <= tex.params.height);
 
     cache.storeTextureBinding(0);
-    cache.bindTexture(0, tex.params.kind.gl(), tex.raw);
+    cache.bindTexture(0, gl.TEXTURE_2D, tex.raw);
 
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
     if (tex.params.format == .alpha) {
