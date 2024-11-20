@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const gl = @import("gl");
 const meta = @import("../meta.zig");
 const math = @import("../math.zig");
+const log = std.log.scoped(.gfx);
 
 pub const text = @import("text.zig");
 pub usingnamespace @import("types.zig");
@@ -76,7 +77,7 @@ var allocator: std.mem.Allocator = undefined;
 var gl_procs: gl.ProcTable = undefined;
 
 pub fn init(alloc: std.mem.Allocator, desc: gfx.Config) !void {
-    assert(gl_procs.init(desc.loader));
+    _ = gl_procs.init(desc.loader);
     gl.makeProcTableCurrent(&gl_procs);
 
     gl.GetIntegerv(gl.FRAMEBUFFER_BINDING, @ptrCast(&default_framebuffer));
@@ -184,7 +185,7 @@ pub fn createShader(vertex: [:0]const u8, fragment: [:0]const u8, details: gfx.S
                 gl.Uniform1i(loc, slot);
                 slot += 1;
             } else {
-                std.debug.print("Could not find uniform for image [{s}]!\n", .{img});
+                log.warn("Could not find uniform for image [{s}]!", .{img});
             }
         }
     }
@@ -229,9 +230,9 @@ pub fn createTexture(desc: gfx.TextureDesc) gfx.TextureId {
     cache.bindTexture(0, gl.TEXTURE_2D, texture);
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
-    if (desc.format == .alpha) {
-        gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_A, gl.RED);
-    }
+    // if (desc.format == .alpha) {
+    //     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_A, gl.RED);
+    // }
 
     gl.TexImage2D(
         gl.TEXTURE_2D,
@@ -288,9 +289,9 @@ pub fn updateTexturePart(texture: gfx.TextureId, x: i32, y: i32, width: u32, hei
     cache.bindTexture(0, gl.TEXTURE_2D, tex.raw);
 
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    if (tex.params.format == .alpha) {
-        gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_A, gl.RED);
-    }
+    // if (tex.params.format == .alpha) {
+    //     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_A, gl.RED);
+    // }
 
     _, const format, const pixel_type = tex.params.format.gl();
 
@@ -514,7 +515,7 @@ pub fn endRenderPass() void {
     cache.bindBuffer(gl.ARRAY_BUFFER, 0, null);
     cache.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, 0, null);
 
-    if (builtin.mode == .Debug) checkError();
+    // if (builtin.mode == .Debug) checkError(); TODO
 }
 
 pub fn commitFrame() void {
@@ -569,7 +570,16 @@ fn compileShader(shader_type: u32, source: []const u8) !gfx.ShaderId {
     var compiled: i32 = 0;
     gl.GetShaderiv(shader, gl.COMPILE_STATUS, &compiled);
     if (compiled == 0) {
-        unreachable;
+        var buf: [2048]u8 = undefined;
+        var total_len: i32 = -1;
+        gl.GetShaderInfoLog(shader, 2048, &total_len, buf[0..]);
+        if (total_len == -1) {
+            // the length of the infolog seems to not be set when a GL context isn't set (so when the window isn't created)
+            unreachable;
+        }
+
+        log.err("shader compilation error:\n{s}", .{buf[0..@as(usize, @intCast(total_len))]});
+        return error.unexpected;
     }
 
     return @enumFromInt(shader);

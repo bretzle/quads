@@ -19,42 +19,43 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    {
-        const exe = b.addExecutable(.{
-            .name = "basic mq",
-            .root_source_file = b.path("examples/basic_mq.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        exe.root_module.addImport("quads", quads);
-
-        b.installArtifact(exe);
-
-        const run_cmd = b.addRunArtifact(exe);
-        run_cmd.step.dependOn(b.getInstallStep());
-        const run_step = b.step("run", "Run the app");
-        run_step.dependOn(&run_cmd.step);
-    }
-
-    {
-        const exe = b.addExecutable(.{
-            .name = "text",
-            .root_source_file = b.path("examples/text.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        exe.root_module.addImport("quads", quads);
-
-        b.installArtifact(exe);
-
-        const run_cmd = b.addRunArtifact(exe);
-        run_cmd.step.dependOn(b.getInstallStep());
-        const run_step = b.step("text", "Run the app");
-        run_step.dependOn(&run_cmd.step);
+    inline for (.{ "basic_mq", "text" }) |name| {
+        buildExample(b, name, target, optimize, quads);
     }
 
     const t = b.addTest(.{ .root_source_file = b.path("src/quads.zig") });
     t.root_module.addImport("gl", gl);
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&t.step);
+}
+
+fn buildExample(b: *std.Build, comptime name: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, quads: *std.Build.Module) void {
+    const exe = b.addExecutable(.{
+        .name = name,
+        .root_source_file = b.path("examples/" ++ name ++ ".zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    if (target.result.isWasm()) {
+        exe.entry = .disabled;
+        exe.rdynamic = true;
+    }
+
+    exe.root_module.addImport("quads", quads);
+
+    const install = b.addInstallArtifact(exe, .{
+        .dest_dir = if (target.result.isWasm()) .{ .override = .{ .custom = "../www" } } else .default,
+    });
+
+    const step = b.step(name, "build " ++ name ++ " example");
+    if (target.result.isWasm()) {
+        step.dependOn(&install.step);
+    }
+
+    if (!target.result.isWasm()) {
+        const run = b.addRunArtifact(exe);
+        step.dependOn(&run.step);
+        b.installArtifact(exe);
+    }
 }

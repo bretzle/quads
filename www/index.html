@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>basic_mq</title>
+    <style>
+        #canvas {
+            width: 640px;
+            height: 480px;
+            background-color: black;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas" tabindex="-1"></canvas>
+    <script src="wasm.js"></script>
+    <script>WebAssembly.instantiateStreaming(fetch("basic_mq.wasm"), { quads: quads }).then(result => quads.start(result.instance, document.getElementById("canvas")));</script>
+</body>
+
+</html>

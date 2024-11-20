@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 
 const platform = switch (builtin.os.tag) {
     .windows => @import("platform/windows.zig"),
+    .freestanding => @import("platform/wasm.zig"),
     else => unreachable,
 };
 
@@ -13,6 +14,8 @@ pub const gfx = @import("gfx/gfx.zig");
 pub const experimental = struct {
     pub const schrift = @import("schrift.zig");
 };
+
+pub const logFn = if (@hasDecl(platform, "logFn")) platform.logFn else std.log.defaultLog;
 
 pub var allocator: std.mem.Allocator = undefined;
 pub var init_options: InitOptions = undefined;
@@ -40,10 +43,7 @@ pub fn run(comptime func: anytype, args: anytype) !void {
     return platform.run(func, args);
 }
 
-pub fn glGetProcAddress(name: [*c]const u8) ?*anyopaque {
-    std.debug.assert(init_options.opengl);
-    return platform.glGetProcAddress(name);
-}
+pub const glGetProcAddress = platform.glGetProcAddress;
 
 pub fn setClipboardText(text: []const u8) void {
     _ = text; // autofix

@@ -91,13 +91,13 @@ pub fn write(str: []const u8, x: f32, y: f32, scale: f32) void {
         indices.appendSliceAssumeCapacity(&.{ offset + 0, offset + 1, offset + 2, offset + 0, offset + 2, offset + 3 });
 
         // zig fmt: off
-            verticecs.appendSliceAssumeCapacity(&.{
-                .{ .pos = .{ pos[0],              pos[1] + glyph_size }, .uv = .{ uvx * char,       1 } }, // bottom left
-                .{ .pos = .{ pos[0] + glyph_size, pos[1] + glyph_size }, .uv = .{ uvx * (char + 1), 1 } }, // bottom right
-                .{ .pos = .{ pos[0] + glyph_size, pos[1]              }, .uv = .{ uvx * (char + 1), 0 } }, // top right
-                .{ .pos = .{ pos[0],              pos[1]              }, .uv = .{ uvx * char,       0 } }, // top left
-            });
-            // zig fmt: on
+        verticecs.appendSliceAssumeCapacity(&.{
+            .{ .pos = .{ pos[0],              pos[1] + glyph_size }, .uv = .{ uvx * char,       1 } }, // bottom left
+            .{ .pos = .{ pos[0] + glyph_size, pos[1] + glyph_size }, .uv = .{ uvx * (char + 1), 1 } }, // bottom right
+            .{ .pos = .{ pos[0] + glyph_size, pos[1]              }, .uv = .{ uvx * (char + 1), 0 } }, // top right
+            .{ .pos = .{ pos[0],              pos[1]              }, .uv = .{ uvx * char,       0 } }, // top left
+        });
+        // zig fmt: on
 
         pos[0] += glyph_size;
     }
@@ -122,11 +122,11 @@ pub fn render() void {
 }
 
 const vertex =
-    \\#version 330
+    \\#version 100
     \\
-    \\in vec2 position;
-    \\in vec2 texcoord;
-    \\out vec2 uv;
+    \\attribute vec2 position;
+    \\attribute vec2 texcoord;
+    \\varying lowp vec2 uv;
     \\
     \\uniform mat4 mvp;
     \\
@@ -137,9 +137,14 @@ const vertex =
 ;
 
 const fragment =
-    \\#version 330
+    \\#version 100
     \\
-    \\in vec2 uv;
+    \\#ifdef GL_ES
+    \\precision mediump float;
+    \\#define texture texture2D
+    \\#endif
+    \\
+    \\varying vec2 uv;
     \\
     \\uniform sampler2D diffuse;
     \\uniform vec4 color;

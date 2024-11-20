@@ -3,6 +3,10 @@ const quads = @import("quads");
 
 const gfx = quads.gfx;
 
+pub const std_options = std.Options{
+    .logFn = quads.logFn,
+};
+
 const Vertex = extern struct {
     pos: [2]f32,
     color: [4]f32,
@@ -12,20 +16,15 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
 pub fn main() !void {
-    defer _ = gpa.deinit();
-
     try quads.init(allocator, .{});
-    defer quads.deinit();
 
     var window = try quads.createWindow(.{ .title = "basic mq" });
-    defer window.destroy();
 
     try window.createContext(.{});
     window.makeContextCurrent();
     window.swapInterval(1);
 
     try gfx.init(allocator, .{ .loader = quads.glGetProcAddress });
-    defer gfx.deinit();
 
     try gfx.text.init();
 
@@ -52,7 +51,13 @@ fn loop(window: *quads.Window, pipeline: gfx.PipelineId, bindings: gfx.Bindings)
     while (window.getEvent()) |ev| {
         // std.debug.print("{any}\n", .{ev});
         switch (ev) {
-            .close => return false,
+            .close => {
+                defer _ = gpa.deinit();
+                quads.deinit();
+                window.destroy();
+                gfx.deinit();
+                return false;
+            },
             .framebuffer => |s| gfx.canvas_size = s,
             else => {},
         }
@@ -75,11 +80,11 @@ fn loop(window: *quads.Window, pipeline: gfx.PipelineId, bindings: gfx.Bindings)
 }
 
 const vertex =
-    \\#version 330
+    \\#version 100
     \\
-    \\in vec2 in_pos;
-    \\in vec4 in_color;
-    \\out vec4 color;
+    \\attribute vec2 in_pos;
+    \\attribute vec4 in_color;
+    \\varying lowp vec4 color;
     \\
     \\void main() {
     \\  gl_Position = vec4(in_pos, 0, 1);
@@ -88,9 +93,9 @@ const vertex =
 ;
 
 const fragment =
-    \\#version 330
+    \\#version 100
     \\
-    \\in vec4 color;
+    \\varying lowp vec4 color;
     \\
     \\void main() {
     \\  gl_FragColor = color;
