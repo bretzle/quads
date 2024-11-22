@@ -1,6 +1,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const Image = @import("image.zig").Image;
+
 pub const version = "0.10.2";
 pub const SFT_DOWNWARD_Y = 0x01;
 
@@ -19,29 +21,23 @@ const file_magic_two = 0x74727565;
 pub const SFT_UChar = u21;
 pub const SFT_Glyph = u32;
 
-pub const SFT_LMetrics = extern struct {
+pub const LMetrics = extern struct {
     ascender: f64,
     descender: f64,
     lineGap: f64,
 };
 
-pub const SFT_GMetrics = extern struct {
+pub const GMetrics = extern struct {
     advanceWidth: f64,
     leftSideBearing: f64,
     yOffset: i32 = 0,
-    minWidth: i32 = 0,
-    minHeight: i32 = 0,
+    minWidth: u32 = 0,
+    minHeight: u32 = 0,
 };
 
-pub const SFT_Kerning = extern struct {
+pub const Kerning = extern struct {
     xShift: f64,
     yShift: f64,
-};
-
-pub const SFT_Image = struct {
-    pixels: []u8,
-    width: i32,
-    height: i32,
 };
 
 pub const SFT = extern struct {
@@ -54,7 +50,7 @@ pub const SFT = extern struct {
     yOffset: f64 = 0,
     flags: i32,
 
-    pub fn lmetrics(self: *const Self) SFT_LMetrics {
+    pub fn lmetrics(self: *const Self) LMetrics {
         const hhea = gettable(self.font, "hhea") orelse unreachable;
         assert(is_safe_offset(self.font, hhea, 36));
 
@@ -70,13 +66,13 @@ pub const SFT = extern struct {
         return glyph_id(self.font, codepoint);
     }
 
-    pub fn gmetrics(self: *const Self, glyph: SFT_Glyph) SFT_GMetrics {
+    pub fn gmetrics(self: *const Self, glyph: SFT_Glyph) GMetrics {
         const xScale = self.xScale / @as(f64, @floatFromInt(self.font.unitsPerEm));
 
         const adv, const lsb = hor_metrics(self.font, glyph);
         const outline = outline_offset(self.font, glyph);
 
-        var metrics = SFT_GMetrics{
+        var metrics = GMetrics{
             .advanceWidth = @as(f64, @floatFromInt(adv)) * xScale,
             .leftSideBearing = @as(f64, @floatFromInt(lsb)) * xScale + self.xOffset,
         };
@@ -87,21 +83,21 @@ pub const SFT = extern struct {
 
         const bbox = glyph_bbox(self, outline);
 
-        metrics.minWidth = bbox[2] - bbox[0] + 1;
-        metrics.minHeight = bbox[3] - bbox[1] + 1;
+        metrics.minWidth = @intCast(bbox[2] - bbox[0] + 1);
+        metrics.minHeight = @intCast(bbox[3] - bbox[1] + 1);
         metrics.yOffset = if (self.flags & SFT_DOWNWARD_Y != 0) -bbox[3] else bbox[1];
 
         return metrics;
     }
 
-    pub fn kerning(_: *const Self, leftGlyph: SFT_Glyph, rightGlyph: SFT_Glyph, kerning_: [*c]SFT_Kerning) i32 {
+    pub fn kerning(_: *const Self, leftGlyph: SFT_Glyph, rightGlyph: SFT_Glyph, kerning_: [*c]Kerning) i32 {
         _ = leftGlyph; // autofix
         _ = rightGlyph; // autofix
         _ = kerning_; // autofix
         unreachable;
     }
 
-    pub fn render(self: *const Self, glyph: SFT_Glyph, image: SFT_Image) !void {
+    pub fn render(self: *const Self, glyph: SFT_Glyph, image: Image(u8)) !void {
         const unitsPerEm: f64 = @floatFromInt(self.font.unitsPerEm);
 
         const outline = outline_offset(self.font, glyph);
@@ -405,6 +401,7 @@ fn glyph_bbox(sft: *const SFT, outline: u32) [4]i32 {
         geti16(sft.font, outline + 8),
     };
 
+    std.debug.print("box: {any}", .{box});
     assert(!(box[2] <= box[0] or box[3] <= box[1]));
 
     // Transform the bounding box into SFT coordinate space.
@@ -583,7 +580,7 @@ const Outline = struct {
         }
     }
 
-    fn render_outline(self: *Self, transform: [6]f64, image: SFT_Image) !void {
+    fn render_outline(self: *Self, transform: [6]f64, image: Image(u8)) !void {
         const numPixels: u32 = @intCast(image.width * image.height);
 
         const cells = try self.points.allocator.alloc(Cell, numPixels);
@@ -593,8 +590,8 @@ const Outline = struct {
 
         const buf = Raster{
             .cells = cells,
-            .width = image.width,
-            .height = image.height,
+            .width = @intCast(image.width),
+            .height = @intCast(image.height),
         };
 
         transform_points(self.points.items, transform);

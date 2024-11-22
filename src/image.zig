@@ -8,25 +8,29 @@ pub const Color = packed struct {
     a: u8 = 0,
 };
 
-pub const Image = struct {
-    pixels: []Color,
-    width: u32,
-    height: u32,
-    allocator: std.mem.Allocator,
+pub fn Image(comptime T: type) type {
+    return struct {
+        const Self = @This();
 
-    pub fn create(allocator: std.mem.Allocator, width: u32, height: u32) !Image {
-        return .{
-            .pixels = try allocator.alloc(Color, width * height),
-            .width = width,
-            .height = height,
-            .allocator = allocator,
-        };
-    }
+        pixels: []T,
+        width: u32,
+        height: u32,
+        allocator: std.mem.Allocator,
 
-    pub fn deinit(self: *const Image) void {
-        self.allocator.free(self.pixels);
-    }
-};
+        pub fn create(allocator: std.mem.Allocator, width: u32, height: u32) !Self {
+            return .{
+                .pixels = try allocator.alloc(T, width * height),
+                .width = width,
+                .height = height,
+                .allocator = allocator,
+            };
+        }
+
+        pub fn deinit(self: *const Self) void {
+            self.allocator.free(self.pixels);
+        }
+    };
+}
 
 pub const png = struct {
     const IHDR = packed struct {
@@ -166,7 +170,7 @@ pub const png = struct {
 
     const magic = "\x89PNG\r\n\x1a\n";
 
-    pub fn decode(allocator: std.mem.Allocator, reader: anytype) !Image {
+    pub fn decode(allocator: std.mem.Allocator, reader: anytype) !Image(Color) {
         var arena = std.heap.ArenaAllocator.init(allocator);
         const alloc = arena.allocator();
         defer arena.deinit();
@@ -328,7 +332,7 @@ pub const png = struct {
 
     const PlteMap = std.AutoArrayHashMap(Color, void);
 
-    pub fn encode(self: *const Image, allocator: std.mem.Allocator, writer: anytype) !void {
+    pub fn encode(self: *const Image(Color), allocator: std.mem.Allocator, writer: anytype) !void {
         assert(self.width * self.height == self.pixels.len);
         var arena = std.heap.ArenaAllocator.init(allocator);
         const alloc = arena.allocator();
