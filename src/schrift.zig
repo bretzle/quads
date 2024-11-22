@@ -28,9 +28,9 @@ pub const SFT_LMetrics = extern struct {
 pub const SFT_GMetrics = extern struct {
     advanceWidth: f64,
     leftSideBearing: f64,
-    yOffset: i32,
-    minWidth: i32,
-    minHeight: i32,
+    yOffset: i32 = 0,
+    minWidth: i32 = 0,
+    minHeight: i32 = 0,
 };
 
 pub const SFT_Kerning = extern struct {
@@ -75,15 +75,23 @@ pub const SFT = extern struct {
 
         const adv, const lsb = hor_metrics(self.font, glyph);
         const outline = outline_offset(self.font, glyph);
-        const bbox = glyph_bbox(self, outline);
 
-        return .{
+        var metrics = SFT_GMetrics{
             .advanceWidth = @as(f64, @floatFromInt(adv)) * xScale,
             .leftSideBearing = @as(f64, @floatFromInt(lsb)) * xScale + self.xOffset,
-            .minWidth = bbox[2] - bbox[0] + 1,
-            .minHeight = bbox[3] - bbox[1] + 1,
-            .yOffset = if (self.flags & SFT_DOWNWARD_Y != 0) -bbox[3] else bbox[1],
         };
+
+        if (outline == 0) {
+            return metrics;
+        }
+
+        const bbox = glyph_bbox(self, outline);
+
+        metrics.minWidth = bbox[2] - bbox[0] + 1;
+        metrics.minHeight = bbox[3] - bbox[1] + 1;
+        metrics.yOffset = if (self.flags & SFT_DOWNWARD_Y != 0) -bbox[3] else bbox[1];
+
+        return metrics;
     }
 
     pub fn kerning(_: *const Self, leftGlyph: SFT_Glyph, rightGlyph: SFT_Glyph, kerning_: [*c]SFT_Kerning) i32 {
@@ -94,10 +102,10 @@ pub const SFT = extern struct {
     }
 
     pub fn render(self: *const Self, glyph: SFT_Glyph, image: SFT_Image) !void {
-        _ = image; // autofix
         const unitsPerEm: f64 = @floatFromInt(self.font.unitsPerEm);
 
         const outline = outline_offset(self.font, glyph);
+        if (outline == 0) return;
         const bbox = glyph_bbox(self, outline);
 
         const transform = [6]f64{
@@ -108,14 +116,12 @@ pub const SFT = extern struct {
             self.xOffset - @as(f64, @floatFromInt(bbox[0])),
             if (self.flags & SFT_DOWNWARD_Y != 0) @as(f64, @floatFromInt(bbox[3])) - self.yOffset else self.yOffset - @as(f64, @floatFromInt(bbox[1])),
         };
-        _ = transform; // autofix
 
         var outl = try Outline.init(self.font.allocator);
         defer outl.deinit();
 
         try outl.decode_outline(self.font, outline, 0);
-
-        unreachable;
+        try outl.render_outline(transform, image);
     }
 };
 
@@ -413,8 +419,8 @@ fn glyph_bbox(sft: *const SFT, outline: u32) [4]i32 {
 }
 
 const Point = struct {
-    x: f64,
-    y: f64,
+    x: f64 = 0,
+    y: f64 = 0,
 };
 
 const Curve = struct {
@@ -510,9 +516,10 @@ const Outline = struct {
         }
     }
 
-    fn decode_contour(self: *Self, flags: []u8, basePoint: usize, count_: u16) !void {
-        _ = self; // autofix
+    fn decode_contour(self: *Self, flags_: []u8, basePoint_: usize, count_: u16) !void {
         var count = count_;
+        var basePoint = basePoint_;
+        var flags: [*]u8 = flags_.ptr;
 
         // Skip contours with less than two points, since the following algorithm can't handle them and
         // they should appear invisible either way (because they don't have any area).
@@ -522,16 +529,16 @@ const Outline = struct {
 
         var looseEnd: u16 = 0;
         var beg: u16 = 0;
-        const ctrl: u16 = 0;
-        _ = ctrl; // autofix
-        const center: u16 = 0;
-        _ = center; // autofix
-        const cur: u16 = 0;
-        _ = cur; // autofix
+        var ctrl: u16 = 0;
+        var center: u16 = 0;
+        var cur: u16 = 0;
         var gotCtrl: u32 = 0;
 
         if (flags[0] & POINT_IS_ON_CURVE != 0) {
-            unreachable;
+            looseEnd = @intCast(basePoint);
+            basePoint += 1;
+            flags += 1;
+            count -= 1;
         } else if (flags[count - 1] & POINT_IS_ON_CURVE != 0) {
             count -= 1;
             looseEnd = @intCast(basePoint + count);
@@ -543,14 +550,115 @@ const Outline = struct {
         gotCtrl = 0;
 
         for (0..count) |i| {
-            _ = i; // autofix
-            unreachable;
+            cur = @intCast(basePoint + i);
+
+            if (flags[i] & POINT_IS_ON_CURVE != 0) {
+                if (gotCtrl != 0) {
+                    self.curves.append(.{ .beg = beg, .end = cur, .ctrl = ctrl }) catch unreachable;
+                } else {
+                    self.lines.append(Line{ .beg = beg, .end = cur }) catch unreachable;
+                }
+                beg = cur;
+                gotCtrl = 0;
+            } else {
+                if (gotCtrl != 0) {
+                    center = @intCast(self.points.items.len);
+                    // assert()
+                    self.points.append(midpoint(self.points.items[ctrl], self.points.items[cur])) catch unreachable;
+
+                    // assert()
+                    self.curves.append(Curve{ .beg = beg, .end = center, .ctrl = ctrl }) catch unreachable;
+
+                    beg = center;
+                }
+                ctrl = cur;
+                gotCtrl = 1;
+            }
         }
 
         if (gotCtrl != 0) {
-            unreachable;
+            self.curves.append(Curve{ .beg = beg, .end = looseEnd, .ctrl = ctrl }) catch unreachable;
         } else {
-            unreachable;
+            self.lines.append(Line{ .beg = beg, .end = looseEnd }) catch unreachable;
+        }
+    }
+
+    fn render_outline(self: *Self, transform: [6]f64, image: SFT_Image) !void {
+        const numPixels: u32 = @intCast(image.width * image.height);
+
+        const cells = try self.points.allocator.alloc(Cell, numPixels);
+        defer self.points.allocator.free(cells);
+
+        @memset(cells, .{ .area = 0, .cover = 0 });
+
+        const buf = Raster{
+            .cells = cells,
+            .width = image.width,
+            .height = image.height,
+        };
+
+        transform_points(self.points.items, transform);
+        clip_points(self.points.items, @floatFromInt(image.width), @floatFromInt(image.height));
+
+        try self.tesselate_curves();
+
+        self.draw_lines(buf);
+        post_process(buf, image.pixels);
+    }
+
+    fn tesselate_curves(self: *Self) !void {
+        for (self.curves.items) |curve| {
+            try self.tesselate_curve(curve);
+        }
+    }
+
+    fn tesselate_curve(self: *Self, curve_: Curve) !void {
+        var curve = curve_;
+
+        const stack_size = 10;
+        var stack: [stack_size]Curve = undefined;
+        var top: u32 = 0;
+
+        while (true) {
+            if (self.is_flat(curve) or top >= stack_size) {
+                self.lines.append(.{ .beg = curve.beg, .end = curve.end }) catch unreachable;
+                if (top == 0) break;
+                top -%= 1;
+                curve = stack[top];
+            } else {
+                const ctrl0: u16 = @intCast(self.points.items.len);
+                self.points.append(midpoint(self.points.items[curve.beg], self.points.items[curve.ctrl])) catch unreachable;
+
+                const ctrl1: u16 = @intCast(self.points.items.len);
+                self.points.append(midpoint(self.points.items[curve.ctrl], self.points.items[curve.end])) catch unreachable;
+
+                const pivot: u16 = @intCast(self.points.items.len);
+                self.points.append(midpoint(self.points.items[ctrl0], self.points.items[ctrl1])) catch unreachable;
+
+                stack[top] = .{ .beg = curve.beg, .end = pivot, .ctrl = ctrl0 };
+                top += 1;
+                curve = .{ .beg = pivot, .end = curve.end, .ctrl = ctrl1 };
+            }
+        }
+    }
+
+    // A heuristic to tell whether a given curve can be approximated closely enough by a line.
+    fn is_flat(self: *Self, curve: Curve) bool {
+        const maxArea2 = 2.0;
+        const a = self.points.items[curve.beg];
+        const b = self.points.items[curve.ctrl];
+        const c = self.points.items[curve.end];
+        const g = Point{ .x = b.x - a.x, .y = b.y - a.y };
+        const h = Point{ .x = c.x - a.x, .y = c.y - a.y };
+        const area2 = @abs(g.x * h.y - h.x * g.y);
+        return area2 <= maxArea2;
+    }
+
+    fn draw_lines(self: *Self, buf: Raster) void {
+        for (self.lines.items) |line| {
+            const origin = self.points.items[line.beg];
+            const goal = self.points.items[line.end];
+            draw_line(buf, origin, goal);
         }
     }
 };
@@ -624,5 +732,135 @@ fn simple_points(font: *SFT_Font, offset_: u32, numPts: usize, flags: []u8, poin
             }
             points.items[start + i].y = @floatFromInt(accum);
         }
+    }
+}
+
+fn midpoint(a: Point, b: Point) Point {
+    return .{
+        .x = 0.5 * (a.x + b.x),
+        .y = 0.5 * (a.y + b.y),
+    };
+}
+
+const Cell = struct {
+    area: f64,
+    cover: f64,
+};
+
+const Raster = struct {
+    cells: []Cell,
+    width: i32,
+    height: i32,
+};
+
+fn transform_points(points: []Point, trf: [6]f64) void {
+    for (points) |*pt| {
+        pt.* = .{
+            .x = pt.x * trf[0] + pt.y * trf[2] + trf[4],
+            .y = pt.x * trf[1] + pt.y * trf[3] + trf[5],
+        };
+    }
+}
+
+fn clip_points(points: []Point, width: f64, height: f64) void {
+    for (points) |*pt| {
+        if (pt.x < 0) pt.x = 0;
+        if (pt.x >= width) unreachable;
+        if (pt.y < 0) pt.y = 0;
+        if (pt.y >= height) unreachable;
+    }
+}
+
+/// Draws a line into the buffer. Uses a custom 2D raycasting algorithm to do so.
+fn draw_line(buf: Raster, origin: Point, goal: Point) void {
+    const delta = Point{ .x = goal.x - origin.x, .y = goal.y - origin.y };
+    const dir = [2]i32{ @intFromFloat(std.math.sign(delta.x)), @intFromFloat(std.math.sign(delta.y)) };
+
+    if (dir[1] == 0) return;
+
+    const crossingIncr = Point{
+        .x = if (dir[0] != 0) @abs(1.0 / delta.x) else 1.0,
+        .y = @abs(1.0 / delta.y),
+    };
+
+    var pixel: [2]i32 = .{ 0, 0 };
+    var nextCrossing = Point{};
+    var numSteps: u32 = 0;
+
+    if (dir[0] == 0) {
+        pixel[0] = @intFromFloat(@floor(origin.x));
+        nextCrossing.x = 100.0;
+    } else {
+        if (dir[0] > 0) {
+            pixel[0] = @intFromFloat(@floor(origin.x));
+            nextCrossing.x = (origin.x - @as(f64, @floatFromInt(pixel[0]))) * crossingIncr.x;
+            nextCrossing.x = crossingIncr.x - nextCrossing.x;
+            numSteps += @intFromFloat(@ceil(goal.x) - @floor(origin.x) - 1);
+        } else {
+            pixel[0] = @intFromFloat(@ceil(origin.x) - 1);
+            nextCrossing.x = (origin.x - @as(f64, @floatFromInt(pixel[0]))) * crossingIncr.x;
+            numSteps += @intFromFloat(@ceil(origin.x) - @floor(goal.x) - 1);
+        }
+    }
+
+    if (dir[1] > 0) {
+        pixel[1] = @intFromFloat(@floor(origin.y));
+        nextCrossing.y = (origin.y - @as(f64, @floatFromInt(pixel[1]))) * crossingIncr.y;
+        nextCrossing.y = crossingIncr.y - nextCrossing.y;
+        numSteps += @as(u32, @intFromFloat(@ceil(goal.y) - @floor(origin.y))) - 1;
+    } else {
+        pixel[1] = @intFromFloat(@ceil(origin.y) - 1);
+        nextCrossing.y = (origin.y - @as(f64, @floatFromInt(pixel[1]))) * crossingIncr.y;
+        numSteps += @intFromFloat(@ceil(origin.y) - @floor(goal.y) - 1);
+    }
+
+    var nextDistance = @min(nextCrossing.x, nextCrossing.y);
+    const halfDeltaX = 0.5 * delta.x;
+
+    var xAverage: f64 = 0;
+    var yDifference: f64 = 0;
+    var prevDistance: f64 = 0;
+
+    var cptr: *Cell = undefined;
+    var cell: Cell = undefined;
+
+    for (0..numSteps) |_| {
+        xAverage = origin.x + (prevDistance + nextDistance) * halfDeltaX;
+        yDifference = (nextDistance - prevDistance) * delta.y;
+        cptr = &buf.cells[@intCast(pixel[1] * buf.width + pixel[0])];
+        cell = cptr.*;
+        cell.cover += yDifference;
+        xAverage -= @floatFromInt(pixel[0]);
+        cell.area += (1.0 - xAverage) * yDifference;
+        cptr.* = cell;
+        prevDistance = nextDistance;
+        const alongX = nextCrossing.x < nextCrossing.y;
+        pixel[0] += if (alongX) dir[0] else 0;
+        pixel[1] += if (alongX) 0 else dir[1];
+        nextCrossing.x += if (alongX) crossingIncr.x else 0.0;
+        nextCrossing.y += if (alongX) 0.0 else crossingIncr.y;
+        nextDistance = @min(nextCrossing.x, nextCrossing.y);
+    }
+
+    xAverage = origin.x + (prevDistance + 1.0) * halfDeltaX;
+    yDifference = (1.0 - prevDistance) * delta.y;
+    cptr = &buf.cells[@intCast(pixel[1] * buf.width + pixel[0])];
+    cell = cptr.*;
+    cell.cover += yDifference;
+    xAverage -= @floatFromInt(pixel[0]);
+    cell.area += (1.0 - xAverage) * yDifference;
+    cptr.* = cell;
+}
+
+/// Integrate the values in the buffer to arrive at the final grayscale image.
+fn post_process(buf: Raster, image: []u8) void {
+    var accum: f64 = 0;
+    for (0..image.len) |i| {
+        const cell = buf.cells[i];
+        var value = @abs(accum + cell.area);
+        value = @min(value, 1.0);
+        value = value * 255.0 + 0.5;
+        image[i] = @intFromFloat(value);
+        accum += cell.cover;
     }
 }
