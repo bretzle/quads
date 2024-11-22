@@ -10,6 +10,7 @@ const platform = switch (builtin.os.tag) {
 pub const meta = @import("meta.zig");
 pub const math = @import("math.zig");
 pub const gfx = @import("gfx/gfx.zig");
+pub const image = @import("image.zig");
 
 pub const experimental = struct {
     pub const schrift = @import("schrift.zig");

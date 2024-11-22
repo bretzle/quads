@@ -1,6 +1,6 @@
 const std = @import("std");
 const quads = @import("quads");
-const png = @import("png.zig");
+const image = quads.image;
 const text = quads.experimental.schrift;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -45,11 +45,8 @@ pub fn main() !void {
         // std.debug.print("codepoint: {d} ({c}) gid: {d} mtx: {any}\n", .{ codepoint, @as(u8, @truncate(codepoint)), gid, mtx });
 
         if (mtx.minWidth != 0) {
-            const p = png.PNG{
-                .width = @intCast(img.width),
-                .height = @intCast(img.height),
-                .pixels = try allocator.alloc(png.Color, @intCast(img.width * img.height)),
-            };
+            const p = try image.Image.create(allocator, @intCast(img.width), @intCast(img.height));
+            defer p.deinit();
 
             for (img.pixels, p.pixels) |src, *dst| {
                 dst.* = .{ .r = 0x69, .g = 0, .b = 0, .a = src };
@@ -57,7 +54,7 @@ pub fn main() !void {
 
             const png_name = try std.fmt.allocPrint(allocator, "chars/{c}.png", .{@as(u8, @truncate(codepoint))});
             const output = try std.fs.cwd().createFile(png_name, .{});
-            try p.encode(allocator, output.writer().any());
+            try image.png.encode(&p, allocator, output.writer().any());
         }
     }
 }
