@@ -11,10 +11,13 @@ pub const meta = @import("meta.zig");
 pub const math = @import("math.zig");
 pub const gfx = @import("gfx/gfx.zig");
 pub const image = @import("image.zig");
+pub const testing = @import("testing.zig");
 
 pub const experimental = struct {
     pub const schrift = @import("schrift.zig");
 };
+
+pub const Args = @import("Args.zig");
 
 pub const logFn = if (@hasDecl(platform, "logFn")) platform.logFn else std.log.defaultLog;
 
@@ -325,5 +328,5 @@ pub const Button = enum {
 };
 
 test {
-    _ = std.testing.refAllDeclsRecursive(@This());
+    std.testing.refAllDeclsRecursive(@This());
 }

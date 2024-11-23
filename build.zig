@@ -20,14 +20,21 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    b.addNamedLazyPath("test_runner", b.path("test_running.zig"));
+
     inline for (.{ "basic_mq", "text" }) |name| {
         buildExample(b, name, target, optimize, quads);
     }
 
-    const t = b.addTest(.{ .root_source_file = b.path("src/quads.zig") });
+    const t = b.addTest(.{
+        .root_source_file = b.path("src/quads.zig"),
+        .test_runner = b.path("test_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     t.root_module.addImport("gl", gl);
     const test_step = b.step("test", "run tests");
-    test_step.dependOn(&t.step);
+    test_step.dependOn(&b.addRunArtifact(t).step);
 }
 
 fn buildExample(b: *std.Build, comptime name: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, quads: *std.Build.Module) void {

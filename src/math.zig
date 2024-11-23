@@ -50,7 +50,7 @@ pub fn cross(a: Vec3, b: Vec3) Vec3 {
 
 /// 4 by 4 matrix type.
 pub const Mat4 = extern struct {
-    pub const Self = @This();
+    const Self = @This();
 
     // [row][col]
     data: [4][4]f32 = .{.{ 0, 0, 0, 0 }} ** 4,
