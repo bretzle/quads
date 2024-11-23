@@ -1,10 +1,11 @@
 const std = @import("std");
+const glgen = @import("zigglgen");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const gl = @import("zigglgen").generateBindingsModule(b, .{
+    const gl = glgen.generateBindingsModule(b, .{
         .api = .gl,
         .version = .@"3.3",
         .profile = .core,
@@ -37,23 +38,17 @@ fn buildExample(b: *std.Build, comptime name: []const u8, target: std.Build.Reso
         .optimize = optimize,
     });
 
+    exe.root_module.addImport("quads", quads);
+
+    const step = b.step(name, "build " ++ name ++ " example");
+
     if (target.result.isWasm()) {
         exe.entry = .disabled;
         exe.rdynamic = true;
-    }
 
-    exe.root_module.addImport("quads", quads);
-
-    const install = b.addInstallArtifact(exe, .{
-        .dest_dir = if (target.result.isWasm()) .{ .override = .{ .custom = "../www" } } else .default,
-    });
-
-    const step = b.step(name, "build " ++ name ++ " example");
-    if (target.result.isWasm()) {
+        const install = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "../www" } } });
         step.dependOn(&install.step);
-    }
-
-    if (!target.result.isWasm()) {
+    } else {
         const run = b.addRunArtifact(exe);
         step.dependOn(&run.step);
         b.installArtifact(exe);
