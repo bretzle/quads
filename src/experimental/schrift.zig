@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const Image = @import("image.zig").Image;
+const Image = @import("../image.zig").Image;
 
 pub const version = "0.10.2";
 pub const SFT_DOWNWARD_Y = 0x01;

@@ -16,14 +16,14 @@ pub inline fn cast(comptime T: type, comptime U: type, data: U) T {
     if (T == U) return data;
 
     return switch (@typeInfo(T)) {
-        .Int => switch (@typeInfo(U)) {
-            .Int => @intCast(data),
-            .Float => @intFromFloat(data),
+        .int => switch (@typeInfo(U)) {
+            .int => @intCast(data),
+            .float => @intFromFloat(data),
             else => comptime unreachable,
         },
-        .Float => switch (@typeInfo(U)) {
-            .Int => @floatFromInt(data),
-            .Float => @floatCast(data),
+        .float => switch (@typeInfo(U)) {
+            .int => @floatFromInt(data),
+            .float => @floatCast(data),
             else => comptime unreachable,
         },
         else => comptime unreachable,
