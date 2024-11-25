@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
 
     b.addNamedLazyPath("test_runner", b.path("test_running.zig"));
 
-    inline for (.{ "basic_mq", "text" }) |name| {
+    inline for (.{ "basic_mq", "text", "benchmarking" }) |name| {
         buildExample(b, name, target, optimize, quads);
     }
 
