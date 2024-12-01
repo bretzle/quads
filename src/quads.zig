@@ -18,6 +18,7 @@ pub const experimental = struct {
     pub const parser = @import("experimental/parser.zig");
     pub const toml = @import("experimental/toml.zig");
     pub const benchmark = @import("experimental/benchmark.zig");
+    pub const ttf = @import("experimental/font/ttf.zig");
 };
 
 pub const Args = @import("Args.zig");
