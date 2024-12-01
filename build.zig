@@ -35,6 +35,19 @@ pub fn build(b: *std.Build) void {
     t.root_module.addImport("gl", gl);
     const test_step = b.step("test", "run tests");
     test_step.dependOn(&b.addRunArtifact(t).step);
+
+    const docs = b.step("docs", "Build the quads docs");
+    const docs_obj = b.addObject(.{
+        .name = "quads",
+        .root_source_file = quads.root_source_file,
+        .target = target,
+        .optimize = optimize,
+    });
+    docs.dependOn(&b.addInstallDirectory(.{
+        .source_dir = docs_obj.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    }).step);
 }
 
 fn buildExample(b: *std.Build, comptime name: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, quads: *std.Build.Module) void {
