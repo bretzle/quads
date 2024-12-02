@@ -41,36 +41,12 @@ pub fn BaseReturnType(comptime T: type) type {
     };
 }
 
-pub const TraitFn = fn (type) bool;
-pub fn is(comptime id: std.builtin.TypeId) TraitFn {
-    const Closure = struct {
-        pub fn trait(comptime T: type) bool {
-            return id == @typeInfo(T);
-        }
-    };
-    return comptime Closure.trait;
-}
-
-pub fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
-    const Closure = struct {
-        pub fn trait(comptime T: type) bool {
-            if (!comptime isSingleItemPtr(T)) return false;
-            return id == @typeInfo(std.meta.Child(T));
-        }
-    };
-    return Closure.trait;
-}
-
-pub fn isSingleItemPtr(comptime T: type) bool {
-    if (comptime is(.pointer)(T)) {
-        return @typeInfo(T).pointer.size == .One;
-    }
-    return false;
+pub fn isPtrTo(comptime T: type, comptime id: std.builtin.TypeId) bool {
+    if (@typeInfo(T) != .pointer) return false;
+    return id == @typeInfo(std.meta.Child(T));
 }
 
 pub fn isStringArray(comptime T: type) bool {
-    if (!is(.array)(T) and !isPtrTo(.array)(T)) {
-        return false;
-    }
+    if (@typeInfo(T) != .array and !isPtrTo(T, .array)) return false;
     return std.meta.Elem(T) == u8;
 }

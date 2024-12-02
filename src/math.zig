@@ -1,9 +1,6 @@
 const std = @import("std");
 const meta = @import("meta.zig");
-
-pub const Point = struct { x: i32 = 0, y: i32 = 0 };
-pub const Rect = struct { x: i32 = 0, y: i32 = 0, w: i32 = 0, h: i32 = 0 };
-pub const Area = struct { w: u32 = 0, h: u32 = 0 };
+const testing = @import("testing.zig");
 
 pub const Vec2 = @Vector(2, f32);
 pub const Vec3 = @Vector(3, f32);
@@ -32,7 +29,7 @@ pub fn angleBetween(a: anytype, b: anytype) f32 {
 
 pub fn normalize(vec: anytype) @TypeOf(vec) {
     meta.isVector(@TypeOf(vec));
-    return vec * @as(@TypeOf(vec), @splat(1.0 / @sqrt(dot(vec, vec))));
+    return scale(vec, 1.0 / len(vec));
 }
 
 pub fn dot(a: anytype, b: anytype) f32 {
@@ -46,6 +43,63 @@ pub fn cross(a: Vec3, b: Vec3) Vec3 {
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
     };
+}
+
+pub fn scale(vec: anytype, val: f32) @TypeOf(vec) {
+    meta.isVector(@TypeOf(vec));
+    return vec * @as(@TypeOf(vec), @splat(val));
+}
+
+pub fn lerp(a: anytype, b: anytype, t: f32) @TypeOf(a, b) {
+    meta.isVector(@TypeOf(a, b));
+    return scale(a, 1.0 - t) + scale(b, t);
+}
+
+const swizzle_lookup = std.StaticStringMap(u8).initComptime(.{
+    .{ "x", 0 },
+    .{ "y", 1 },
+    .{ "z", 2 },
+    .{ "w", 3 },
+
+    .{ "r", 0 },
+    .{ "g", 1 },
+    .{ "b", 2 },
+    .{ "a", 3 },
+});
+
+pub fn swizzle(vec: anytype, comptime str: []const u8) @TypeOf(vec) {
+    meta.isVector(@TypeOf(vec));
+    meta.compileAssert(@typeInfo(@TypeOf(vec)).vector.len == str.len, "output must be same size as vector", .{});
+
+    var output: @TypeOf(vec) = undefined;
+
+    inline for (str, 0..) |char, idx| {
+        meta.compileAssert(swizzle_lookup.has(&.{char}), "{c} is not a valid swizzle component", .{char});
+        const found = comptime swizzle_lookup.get(&.{char}) orelse unreachable;
+        meta.compileAssert(found < @typeInfo(@TypeOf(vec)).vector.len, "todo", .{});
+
+        output[idx] = vec[found];
+    }
+
+    return output;
+}
+
+fn SwizzleOutput(comptime str: []const u8) type {
+    return @Vector(str.len, f32);
+}
+
+pub fn swizzle2(vec: anytype, comptime str: []const u8) SwizzleOutput(str) {
+    var output: SwizzleOutput(str) = undefined;
+
+    inline for (str, 0..) |char, idx| {
+        meta.compileAssert(swizzle_lookup.has(&.{char}), "{c} is not a valid swizzle component", .{char});
+        const found = comptime swizzle_lookup.get(&.{char}) orelse unreachable;
+        meta.compileAssert(found < @typeInfo(SwizzleOutput(str)).vector.len, "todo", .{});
+
+        output[idx] = vec[found];
+    }
+
+    return output;
 }
 
 /// 4 by 4 matrix type.
@@ -160,9 +214,60 @@ pub const Mat4 = extern struct {
         };
     }
 
-    pub inline fn get(self: *const Self, comptime idx: comptime_int) f32 {
-        const row = idx / 4;
-        const col = idx % 4;
-        return self.data[row][col];
+    pub fn transpose(mat: Self) Self {
+        var result = mat;
+
+        result.data[0][0] = mat.data[0][0];
+        result.data[0][1] = mat.data[1][0];
+        result.data[0][2] = mat.data[2][0];
+        result.data[0][3] = mat.data[3][0];
+        result.data[1][0] = mat.data[0][1];
+        result.data[1][1] = mat.data[1][1];
+        result.data[1][2] = mat.data[2][1];
+        result.data[1][3] = mat.data[3][1];
+        result.data[2][0] = mat.data[0][2];
+        result.data[2][1] = mat.data[1][2];
+        result.data[2][2] = mat.data[2][2];
+        result.data[2][3] = mat.data[3][2];
+        result.data[3][0] = mat.data[0][3];
+        result.data[3][1] = mat.data[1][3];
+        result.data[3][2] = mat.data[2][3];
+        result.data[3][3] = mat.data[3][3];
+
+        return result;
+    }
+
+    pub fn determinant(mat: Self) f32 {
+        const c01: Vec3 = cross(swizzle2(mat.data[0], "xyz"), swizzle2(mat.data[1], "xyz"));
+        const c23: Vec3 = cross(swizzle2(mat.data[2], "xyz"), swizzle2(mat.data[3], "xyz"));
+        const b10: Vec3 = scale(swizzle2(mat.data[0], "xyz"), mat.data[1][3]) - scale(swizzle2(mat.data[1], "xyz"), mat.data[0][3]);
+        const b32: Vec3 = scale(swizzle2(mat.data[2], "xyz"), mat.data[3][3]) - scale(swizzle2(mat.data[3], "xyz"), mat.data[2][3]);
+
+        return dot(c01, b32) + dot(c23, b10);
     }
 };
+
+test swizzle {
+    const a = Vec4{ 1, 2, 3, 4 };
+
+    try testing.expectEqual(Vec4{ 4, 3, 2, 1 }, swizzle(a, "wzyx"));
+    try testing.expectEqual(Vec4{ 1, 2, 1, 2 }, swizzle(a, "xyxy"));
+
+    const b = Vec3{ 1, 2, 3 };
+
+    try testing.expectEqual(Vec3{ 3, 2, 1 }, swizzle(b, "zyx"));
+    try testing.expectEqual(Vec3{ 1, 2, 1 }, swizzle(b, "xyx"));
+}
+
+test "determinant" {
+    const mat = Mat4{
+        .data = .{
+            .{ 1, 0, 4, -6 },
+            .{ 2, 5, 0, 3 },
+            .{ -1, 2, 3, 5 },
+            .{ 2, 1, -2, 3 },
+        },
+    };
+
+    try testing.expectEqual(318, mat.determinant());
+}
