@@ -1,9 +1,17 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const glgen = @import("zigglgen");
 
-pub fn build(b: *std.Build) void {
+const Example = struct {
+    name: []const u8,
+    imports: []const std.Build.Module.Import = &.{},
+};
+
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    b.addNamedLazyPath("test_runner", b.path("test_running.zig"));
 
     const gl = glgen.generateBindingsModule(b, .{
         .api = .gl,
@@ -12,65 +20,135 @@ pub fn build(b: *std.Build) void {
     });
 
     const quads = b.addModule("quads", .{
-        .root_source_file = b.path("src/quads.zig"),
+        .root_source_file = b.path("src/quads/quads.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const gfx = b.addModule("gfx", .{
+        .root_source_file = b.path("src/gfx/gfx.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
             .{ .name = "gl", .module = gl },
+            .{ .name = "quads", .module = quads },
         },
     });
 
-    b.addNamedLazyPath("test_runner", b.path("test_running.zig"));
-
-    inline for (.{ "basic_mq", "text", "benchmarking" }) |name| {
-        buildExample(b, name, target, optimize, quads);
-    }
-
-    const t = b.addTest(.{
-        .root_source_file = b.path("src/quads.zig"),
-        .test_runner = b.path("test_runner.zig"),
+    const winit = b.addModule("winit", .{
+        .root_source_file = b.path("src/winit/winit.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "quads", .module = quads },
+        },
     });
-    t.root_module.addImport("gl", gl);
-    const test_step = b.step("test", "run tests");
-    test_step.dependOn(&b.addRunArtifact(t).step);
 
-    const docs = b.step("docs", "Build the quads docs");
-    const docs_obj = b.addObject(.{
-        .name = "quads",
-        .root_source_file = quads.root_source_file,
-        .target = target,
-        .optimize = optimize,
-    });
-    docs.dependOn(&b.addInstallDirectory(.{
-        .source_dir = docs_obj.getEmittedDocs(),
-        .install_dir = .prefix,
-        .install_subdir = "docs",
-    }).step);
+    try buildTests(b, &.{ quads, gfx, winit });
+    try buildDocs(b, &.{ quads, gfx, winit });
+
+    const examples = &[_]Example{
+        .{ .name = "basic", .imports = &.{
+            .{ .name = "winit", .module = winit },
+            .{ .name = "gfx", .module = gfx },
+        } },
+        .{ .name = "text", .imports = &.{
+            .{ .name = "winit", .module = winit },
+            .{ .name = "gfx", .module = gfx },
+            .{ .name = "quads", .module = quads },
+        } },
+        .{ .name = "benchmarking", .imports = &.{
+            .{ .name = "quads", .module = quads },
+        } },
+    };
+    buildExamples(b, target, optimize, examples);
+
+    const clean = b.step("clean", "Clean up");
+    clean.dependOn(&b.addRemoveDirTree(b.path("zig-out")).step);
+    if (builtin.os.tag != .windows) clean.dependOn(&b.addRemoveDirTree(b.path(".zig-cache")).step);
 }
 
-fn buildExample(b: *std.Build, comptime name: []const u8, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, quads: *std.Build.Module) void {
-    const exe = b.addExecutable(.{
-        .name = name,
-        .root_source_file = b.path("examples/" ++ name ++ ".zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+fn buildTests(b: *std.Build, modules: []const *std.Build.Module) !void {
+    const step = b.step("test", "run tests");
 
-    exe.root_module.addImport("quads", quads);
+    for (modules) |module| {
+        const t = b.addTest(.{
+            .root_source_file = module.root_source_file.?,
+            .test_runner = b.path("src/test_runner.zig"),
+            .target = module.resolved_target,
+            .optimize = module.optimize.?,
+        });
 
-    const step = b.step(name, "build " ++ name ++ " example");
+        var it = module.import_table.iterator();
+        while (it.next()) |entry| {
+            t.root_module.addImport(entry.key_ptr.*, entry.value_ptr.*);
+        }
 
-    if (target.result.isWasm()) {
-        exe.entry = .disabled;
-        exe.rdynamic = true;
+        const run = b.addRunArtifact(t);
+        step.dependOn(&run.step);
+    }
+}
 
-        const install = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "../www" } } });
+fn buildDocs(b: *std.Build, modules: []const *std.Build.Module) !void {
+    const step = b.step("docs", "generate docs");
+
+    for (modules) |module| {
+        const obj = b.addObject(.{
+            .name = std.fs.path.stem(module.root_source_file.?.getDisplayName()),
+            .root_source_file = module.root_source_file,
+            .target = module.resolved_target.?,
+            .optimize = module.optimize.?,
+        });
+
+        const install = b.addInstallDirectory(.{
+            .source_dir = obj.getEmittedDocs(),
+            .install_dir = .prefix,
+            .install_subdir = b.fmt("docs/{s}", .{obj.name}),
+        });
+
         step.dependOn(&install.step);
-    } else {
+    }
+}
+
+// TODO: handle wasm again
+fn buildExamples(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, examples: []const Example) void {
+    const all = b.step("all", "build all examples");
+
+    for (examples) |example| {
+        const exe = b.addExecutable(.{
+            .name = example.name,
+            .root_source_file = b.path(b.fmt("examples/{s}.zig", .{example.name})),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        for (example.imports) |import| {
+            exe.root_module.addImport(import.name, import.module);
+        }
+
+        const step = b.step(example.name, b.fmt("run example - {s}", .{example.name}));
         const run = b.addRunArtifact(exe);
         step.dependOn(&run.step);
-        b.installArtifact(exe);
+
+        const install = b.addInstallArtifact(exe, .{});
+        all.dependOn(&install.step);
+    }
+}
+
+comptime {
+    const required_zig = "0.14.0-dev.2245+4fc295dc0";
+    const current_zig = builtin.zig_version;
+    const min_zig = std.SemanticVersion.parse(required_zig) catch unreachable;
+    if (current_zig.order(min_zig) == .lt) {
+        const error_message =
+            \\Sorry, it looks like your version of zig is too old. :-(
+            \\
+            \\quads requires development build {}
+            \\
+            \\Please download a development ("master") build from https://ziglang.org/download/
+            \\
+            \\
+        ;
+        @compileError(std.fmt.comptimePrint(error_message, .{min_zig}));
     }
 }

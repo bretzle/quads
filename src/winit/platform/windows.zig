@@ -1,7 +1,7 @@
 const std = @import("std");
-const quads = @import("../quads.zig");
+const winit = @import("../winit.zig");
 const os = @import("../os/winapi.zig");
-const meta = @import("../meta.zig");
+const meta = @import("quads").meta;
 
 const log = std.log.scoped(.quads);
 
@@ -13,7 +13,7 @@ var wgl: struct {
     swapIntervalEXT: ?*const fn (i32) callconv(os.WINAPI) os.BOOL = null,
 } = .{};
 
-pub fn init(options: quads.InitOptions) !void {
+pub fn init(options: winit.InitOptions) !void {
     const instance = os.GetModuleHandleA(null);
     const class = os.WNDCLASSEXA{
         .lpfnWndProc = windowProc,
@@ -108,10 +108,10 @@ pub fn glGetProcAddress(name: [*c]const u8) ?*anyopaque {
 
 //#region window
 
-events: std.fifo.LinearFifo(quads.Event, .Dynamic),
+events: std.fifo.LinearFifo(winit.Event, .Dynamic),
 window: os.HWND,
 cursor: os.HCURSOR,
-cursor_mode: quads.CursorMode,
+cursor_mode: winit.CursorMode,
 
 rect: os.RECT = .{},
 left_shift: bool = false,
@@ -121,9 +121,9 @@ surrogate: u16 = 0,
 dc: ?os.HDC = null,
 rc: ?os.HGLRC = null,
 
-pub fn createWindow(options: quads.WindowOptions) !*@This() {
-    const self = try quads.allocator.create(@This());
-    errdefer quads.allocator.destroy(self);
+pub fn createWindow(options: winit.WindowOptions) !*@This() {
+    const self = try winit.allocator.create(@This());
+    errdefer winit.allocator.destroy(self);
 
     const style = os.WS_OVERLAPPEDWINDOW;
     const size = clientToWindow(options.size, style);
@@ -146,7 +146,7 @@ pub fn createWindow(options: quads.WindowOptions) !*@This() {
     _ = os.DwmSetWindowAttribute(window, os.DWMWA_WINDOW_CORNER_PREFERENCE, &@as(i32, 3), @sizeOf(i32));
 
     self.* = .{
-        .events = .init(quads.allocator),
+        .events = .init(winit.allocator),
         .window = window,
         .cursor = os.LoadCursorA(null, os.IDC_ARROW).?,
         .cursor_mode = options.cursor_mode,
@@ -169,16 +169,16 @@ pub fn createWindow(options: quads.WindowOptions) !*@This() {
 }
 
 pub fn destroy(self: *@This()) void {
-    if (quads.init_options.opengl) {
+    if (winit.init_options.opengl) {
         _ = os.wglDeleteContext(self.rc);
         _ = os.ReleaseDC(self.window, self.dc);
     }
     _ = os.DestroyWindow(self.window);
     self.events.deinit();
-    quads.allocator.destroy(self);
+    winit.allocator.destroy(self);
 }
 
-pub fn getEvent(self: *@This()) ?quads.Event {
+pub fn getEvent(self: *@This()) ?winit.Event {
     return self.events.readItem();
 }
 
@@ -186,13 +186,13 @@ pub fn setTitle(self: *@This(), title: [:0]const u8) void {
     _ = os.SetWindowTextA(self.window, title);
 }
 
-pub fn setSize(self: *@This(), client_size: quads.Size) void {
+pub fn setSize(self: *@This(), client_size: winit.Size) void {
     const style: u32 = @intCast(os.GetWindowLongPtrA(self.window, os.GWL_STYLE));
     const size = clientToWindow(client_size, style);
     _ = os.SetWindowPos(self.window, null, 0, 0, size.width, size.height, os.SWP_NOMOVE | os.SWP_NOZORDER);
 }
 
-pub fn setMode(self: *@This(), mode: quads.WindowMode) void {
+pub fn setMode(self: *@This(), mode: winit.WindowMode) void {
     switch (mode) {
         .normal, .maximized => if (self.isFullscreen()) {
             _ = os.SetWindowLongPtrA(self.window, os.GWL_STYLE, os.WS_OVERLAPPEDWINDOW);
@@ -229,7 +229,7 @@ pub fn setMode(self: *@This(), mode: quads.WindowMode) void {
     }
 }
 
-pub fn setCursor(self: *@This(), shape: quads.Cursor) void {
+pub fn setCursor(self: *@This(), shape: winit.Cursor) void {
     self.cursor = os.LoadCursorA(null, switch (shape) {
         .arrow => os.IDC_ARROW,
         .arrow_busy => os.IDC_APPSTARTING,
@@ -251,7 +251,7 @@ pub fn setCursor(self: *@This(), shape: quads.Cursor) void {
     _ = os.SetCursorPos(pos.x, pos.y);
 }
 
-pub fn setCursorMode(self: *@This(), mode: quads.CursorMode) void {
+pub fn setCursorMode(self: *@This(), mode: winit.CursorMode) void {
     self.cursor_mode = mode;
     if (mode == .relative) {
         self.clipCursor();
@@ -269,7 +269,7 @@ pub fn requestAttention(_: *@This()) void {
     @panic("TODO");
 }
 
-pub fn createContext(self: *@This(), options: quads.ContextOptions) !void {
+pub fn createContext(self: *@This(), options: winit.ContextOptions) !void {
     self.dc = os.GetDC(self.window);
     var pfd = os.PIXELFORMATDESCRIPTOR{
         .nVersion = 1,
@@ -338,7 +338,7 @@ fn windowProc(window: os.HWND, msg: u32, wParam: os.WPARAM, lParam: os.LPARAM) c
             _ = os.ValidateRgn(window, null);
         },
         os.WM_SIZE => {
-            const size = quads.Size{ .width = os.LOWORD(lParam), .height = os.HIWORD(lParam) };
+            const size = winit.Size{ .width = os.LOWORD(lParam), .height = os.HIWORD(lParam) };
             if (self.cursor_mode == .relative) {
                 self.clipCursor();
             }
@@ -411,7 +411,7 @@ fn windowProc(window: os.HWND, msg: u32, wParam: os.WPARAM, lParam: os.LPARAM) c
             }
         },
         os.WM_LBUTTONDOWN, os.WM_LBUTTONUP, os.WM_RBUTTONDOWN, os.WM_RBUTTONUP, os.WM_MBUTTONDOWN, os.WM_MBUTTONUP, os.WM_XBUTTONDOWN, os.WM_XBUTTONUP => {
-            const button: quads.Button = switch (msg) {
+            const button: winit.Button = switch (msg) {
                 os.WM_LBUTTONDOWN, os.WM_LBUTTONUP => .mouse_left,
                 os.WM_RBUTTONDOWN, os.WM_RBUTTONUP => .mouse_right,
                 os.WM_MBUTTONDOWN, os.WM_MBUTTONUP => .mouse_middle,
@@ -459,11 +459,11 @@ fn helperWindowProc(window: os.HWND, msg: u32, wParam: os.WPARAM, lParam: os.LPA
 
 //#region helpers
 
-inline fn pushEvent(self: *@This(), event: quads.Event) void {
+inline fn pushEvent(self: *@This(), event: winit.Event) void {
     self.events.writeItem(event) catch {};
 }
 
-fn clientToWindow(size: quads.Size, style: u32) quads.Size {
+fn clientToWindow(size: winit.Size, style: u32) winit.Size {
     var rect = os.RECT{ .right = size.width, .bottom = size.height };
     _ = os.AdjustWindowRectEx(&rect, style, 0, 0);
     return .{ .width = @intCast(rect.right - rect.left), .height = @intCast(rect.bottom - rect.top) };
@@ -481,8 +481,8 @@ fn isFullscreen(self: *@This()) bool {
     return os.GetWindowLongPtrA(self.window, os.GWL_STYLE) & os.WS_OVERLAPPEDWINDOW != os.WS_OVERLAPPEDWINDOW;
 }
 
-fn scancodeToButton(scancode: u9) ?quads.Button {
-    comptime var table: [0x15D]quads.Button = undefined;
+fn scancodeToButton(scancode: u9) ?winit.Button {
+    comptime var table: [0x15D]winit.Button = undefined;
     comptime for (&table, 1..) |*ptr, i| {
         ptr.* = switch (i) {
             0x1 => .escape,

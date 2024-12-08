@@ -1,16 +1,17 @@
 const std = @import("std");
-const quads = @import("../quads.zig");
-const meta = @import("../meta.zig");
-const log = std.log.scoped(.quads);
+const quads = @import("quads");
+const winit = @import("../winit.zig");
+const meta = quads.meta;
+const log = std.log.scoped(.winit);
 
-const Runnable = @import("../closure.zig").Runnable(bool);
+const Runnable = quads.Runnable(bool);
 
 const js = struct {
-    extern "quads" fn write(ptr: [*]const u8, len: usize) void;
-    extern "quads" fn flush() void;
-    extern "quads" fn createContext() void;
-    extern "quads" fn shift() u32;
-    extern "quads" fn shiftFloat() f32;
+    extern "winit" fn write(ptr: [*]const u8, len: usize) void;
+    extern "winit" fn flush() void;
+    extern "winit" fn createContext() void;
+    extern "winit" fn shift() u32;
+    extern "winit" fn shiftFloat() f32;
 };
 
 pub fn logFn(comptime level: std.log.Level, comptime scope: @TypeOf(.enum_literal), comptime format: []const u8, args: anytype) void {
@@ -27,7 +28,7 @@ pub fn logFn(comptime level: std.log.Level, comptime scope: @TypeOf(.enum_litera
     js.flush();
 }
 
-pub fn init(_: quads.InitOptions) !void {
+pub fn init(_: winit.InitOptions) !void {
     // noop
 }
 
@@ -48,7 +49,7 @@ pub fn glGetProcAddress(comptime name: [*c]const u8) ?*anyopaque {
 
 //#region window
 
-pub fn createWindow(options: quads.WindowOptions) !*@This() {
+pub fn createWindow(options: winit.WindowOptions) !*@This() {
     var self = @This(){};
     self.setCursor(options.cursor);
     self.setCursorMode(options.cursor_mode);
@@ -60,8 +61,8 @@ pub fn destroy(_: *@This()) void {
     unreachable;
 }
 
-pub fn getEvent(_: *@This()) ?quads.Event {
-    const event: quads.EventType = @enumFromInt(js.shift());
+pub fn getEvent(_: *@This()) ?winit.Event {
+    const event: winit.EventType = @enumFromInt(js.shift());
     return switch (event) {
         .close => null, // never sent, EventType 0 is reused to indicate empty queue
         .create => .create,
@@ -86,24 +87,24 @@ pub fn setTitle(_: *@This(), title: [:0]const u8) void {
     unreachable;
 }
 
-pub fn setSize(_: *@This(), client_size: quads.Size) void {
+pub fn setSize(_: *@This(), client_size: winit.Size) void {
     log.err("TODO: setSize", .{});
     _ = client_size; // autofix
     unreachable;
 }
 
-pub fn setMode(_: *@This(), mode: quads.WindowMode) void {
+pub fn setMode(_: *@This(), mode: winit.WindowMode) void {
     log.err("TODO: setMode", .{});
     _ = mode; // autofix
     unreachable;
 }
 
-pub fn setCursor(_: *@This(), shape: quads.Cursor) void {
+pub fn setCursor(_: *@This(), shape: winit.Cursor) void {
     log.err("TODO: setCursor", .{});
     _ = shape; // autofix
 }
 
-pub fn setCursorMode(_: *@This(), mode: quads.CursorMode) void {
+pub fn setCursorMode(_: *@This(), mode: winit.CursorMode) void {
     log.err("TODO: setCursorMode", .{});
     _ = mode; // autofix
 }
@@ -113,7 +114,7 @@ pub fn requestAttention(_: *@This()) void {
     unreachable;
 }
 
-pub fn createContext(_: *@This(), _: quads.ContextOptions) !void {
+pub fn createContext(_: *@This(), _: winit.ContextOptions) !void {
     js.createContext();
 }
 

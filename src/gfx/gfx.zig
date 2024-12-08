@@ -1,8 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const gl = @import("gl");
-const meta = @import("../meta.zig");
-const math = @import("../math.zig");
+const quads = @import("quads");
+const meta = quads.meta;
+const math = quads.math;
 const log = std.log.scoped(.gfx);
 
 pub const text = @import("text.zig");
@@ -11,7 +12,7 @@ pub usingnamespace @import("descriptions.zig");
 
 const gfx = @This();
 const Cache = @import("gl_cache.zig");
-const Pool = @import("../Pool.zig").Pool;
+const Pool = quads.Pool;
 
 const assert = std.debug.assert;
 
@@ -390,8 +391,8 @@ pub fn beginPass(pass: ?gfx.PassId, action: gfx.PassAction) void {
         h = @intCast(textures.get(texture).params.height);
     } else {
         framebuffer = default_framebuffer;
-        w = gfx.canvas_size.width;
-        h = gfx.canvas_size.height;
+        w = gfx.canvas_size[0];
+        h = gfx.canvas_size[1];
     }
 
     gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer);
@@ -611,4 +612,8 @@ fn createVertexAttrFn(comptime T: type) fn (attr_index: *u32, step_func: u32, ve
             }
         }
     }.cb;
+}
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
 }

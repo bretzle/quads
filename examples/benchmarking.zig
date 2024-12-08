@@ -1,6 +1,5 @@
 const std = @import("std");
 const quads = @import("quads");
-
 const bench = quads.experimental.benchmark;
 
 pub fn main() !void {

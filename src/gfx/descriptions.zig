@@ -2,10 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 pub const types = @import("types.zig");
 
-const LoaderFn = @TypeOf(@import("../quads.zig").glGetProcAddress);
-
 pub const Config = struct {
-    loader: LoaderFn,
+    loader: *const fn (name: [*c]const u8) ?*anyopaque,
 
     shaders: u8 = 16,
     pipelines: u8 = 8,

@@ -1,5 +1,5 @@
 const std = @import("std");
-const math = @import("../math.zig");
+const math = @import("quads").math;
 const low = @import("gfx.zig");
 
 const Vertex = extern struct {
@@ -104,7 +104,7 @@ pub fn write(str: []const u8, x: f32, y: f32, scale: f32) void {
 }
 
 pub fn render() void {
-    const mvp = math.Mat4.ortho(0, @floatFromInt(low.canvas_size.width), @floatFromInt(low.canvas_size.height), 0, -1, 1);
+    const mvp = math.Mat4.ortho(0, @floatFromInt(low.canvas_size[0]), @floatFromInt(low.canvas_size[1]), 0, -1, 1);
     const color = [4]f32{ 1, 1, 1, 1 };
 
     low.updateBuffer(Vertex, vertex_buffer, verticecs.constSlice());

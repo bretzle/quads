@@ -1,6 +1,7 @@
 const std = @import("std");
+const winit = @import("winit");
+const gfx = @import("gfx");
 const quads = @import("quads");
-const gfx = quads.gfx;
 const image = quads.image;
 const text = quads.experimental.schrift;
 
@@ -10,15 +11,15 @@ const allocator = gpa.allocator();
 const s = 2;
 
 pub fn main() !void {
-    try quads.init(allocator, .{});
+    try winit.init(allocator, .{});
 
-    var window = try quads.createWindow(.{});
+    var window = try winit.createWindow(.{});
     defer window.destroy();
 
     try window.createContext(.{});
     window.makeContextCurrent();
 
-    try gfx.init(allocator, .{ .loader = quads.glGetProcAddress });
+    try gfx.init(allocator, .{ .loader = winit.glGetProcAddress });
     defer gfx.deinit();
 
     const font_data = try std.fs.cwd().readFileAlloc(allocator, "FiraGO-Regular.ttf", 123456789);

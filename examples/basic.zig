@@ -1,10 +1,9 @@
 const std = @import("std");
-const quads = @import("quads");
-
-const gfx = quads.gfx;
+const winit = @import("winit");
+const gfx = @import("gfx");
 
 pub const std_options = std.Options{
-    .logFn = quads.logFn,
+    .logFn = winit.logFn,
 };
 
 const Vertex = extern struct {
@@ -16,15 +15,15 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
 pub fn main() !void {
-    try quads.init(allocator, .{});
+    try winit.init(allocator, .{});
 
-    var window = try quads.createWindow(.{ .title = "basic mq" });
+    var window = try winit.createWindow(.{ .title = "basic mq" });
 
     try window.createContext(.{});
     window.makeContextCurrent();
     window.swapInterval(1);
 
-    try gfx.init(allocator, .{ .loader = quads.glGetProcAddress });
+    try gfx.init(allocator, .{ .loader = winit.glGetProcAddress });
 
     try gfx.text.init();
 
@@ -44,21 +43,21 @@ pub fn main() !void {
 
     const pipeline = gfx.createPipeline(shader, .{});
 
-    try quads.run(loop, .{ &window, pipeline, bindings });
+    try winit.run(loop, .{ &window, pipeline, bindings });
 }
 
-fn loop(window: *quads.Window, pipeline: gfx.PipelineId, bindings: gfx.Bindings) bool {
+fn loop(window: *winit.Window, pipeline: gfx.PipelineId, bindings: gfx.Bindings) bool {
     while (window.getEvent()) |ev| {
         // std.debug.print("{any}\n", .{ev});
         switch (ev) {
             .close => {
                 defer _ = gpa.deinit();
-                quads.deinit();
+                winit.deinit();
                 window.destroy();
                 gfx.deinit();
                 return false;
             },
-            .framebuffer => |s| gfx.canvas_size = s,
+            .framebuffer => |s| gfx.canvas_size = .{ s.width, s.height },
             else => {},
         }
     }
