@@ -6,6 +6,7 @@ const meta = quads.meta;
 const math = quads.math;
 const log = std.log.scoped(.gfx);
 
+pub const oui = @import("oui.zig");
 pub const text = @import("text.zig");
 pub usingnamespace @import("types.zig");
 pub usingnamespace @import("descriptions.zig");

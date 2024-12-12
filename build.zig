@@ -60,6 +60,10 @@ pub fn build(b: *std.Build) !void {
         .{ .name = "benchmarking", .imports = &.{
             .{ .name = "quads", .module = quads },
         } },
+        .{ .name = "gui", .imports = &.{
+            .{ .name = "winit", .module = winit },
+            .{ .name = "gfx", .module = gfx },
+        } },
     };
     buildExamples(b, target, optimize, examples);
 
