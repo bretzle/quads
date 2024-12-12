@@ -15,6 +15,7 @@ pub var init_options: InitOptions = undefined;
 
 pub const InitOptions = struct {
     opengl: bool = true,
+    icon: ?*anyopaque = null,
 };
 
 pub fn init(alloc: std.mem.Allocator, options: InitOptions) !void {

@@ -19,6 +19,7 @@ pub fn init(options: winit.InitOptions) !void {
         .lpfnWndProc = windowProc,
         .hInstance = instance,
         .lpszClassName = class_name,
+        .hIcon  = os.LoadIconA(instance, @ptrCast(@alignCast(options.icon))),
     };
 
     if (os.RegisterClassExA(&class) == 0) return error.backend_failure;
