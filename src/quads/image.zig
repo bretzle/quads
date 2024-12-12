@@ -230,6 +230,7 @@ pub const png = struct {
             .width = ihdr.width,
             .height = ihdr.height,
             .pixels = pixels,
+            .allocator = allocator,
         };
     }
 
