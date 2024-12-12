@@ -11,6 +11,13 @@ const Vertex = extern struct {
     color: [4]f32,
 };
 
+const Color = packed struct {
+    r: u8 = 0,
+    g: u8 = 0,
+    b: u8 = 0,
+    a: u8 = 0xFF,
+};
+
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
@@ -22,6 +29,13 @@ pub fn main() !void {
     try window.createContext(.{});
     window.makeContextCurrent();
     window.swapInterval(1);
+
+    window.setIcon(std.mem.asBytes(&[4]Color{
+        .{ .r = 0xFF },
+        .{ .g = 0xFF },
+        .{ .b = 0xFF },
+        .{},
+    }), .{ .width = 2, .height = 2 });
 
     try gfx.init(allocator, .{ .loader = winit.glGetProcAddress });
 

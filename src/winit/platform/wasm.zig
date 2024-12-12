@@ -124,6 +124,8 @@ pub fn swapBuffers(_: *@This()) void {}
 
 pub fn swapInterval(_: *@This(), _: i32) void {}
 
+pub fn setIcon(_: *@This(), _: []const u8, _: winit.Size) void {}
+
 //#endregion
 
 const gl = struct {

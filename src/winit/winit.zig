@@ -125,6 +125,11 @@ pub const Window = struct {
     pub fn swapInterval(self: *Window, interval: i32) void {
         self.backend.swapInterval(interval);
     }
+
+    // rgba
+    pub fn setIcon(self: *Window, pixels: []const u8, size: Size) void {
+        self.backend.setIcon(pixels, size);
+    }
 };
 
 pub const EventType = enum {

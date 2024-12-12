@@ -302,6 +302,12 @@ pub fn swapInterval(_: *@This(), interval: i32) void {
     }
 }
 
+pub fn setIcon(self: *@This(), pixels: []const u8, size: winit.Size) void {
+    const handle = loadHandleImage(pixels, size);
+    defer _ = os.DestroyIcon(handle);
+    _ = os.SetClassLongPtrA(self.window, os.GCLP_HICON, @bitCast(@intFromPtr(handle)));
+}
+
 //#endregion
 
 //#region callbacks
@@ -619,6 +625,43 @@ fn scancodeToButton(scancode: u9) ?winit.Button {
         };
     };
     return if (scancode > 0 and scancode <= table.len and table[scancode - 1] != .mouse_left) table[scancode - 1] else null;
+}
+
+fn loadHandleImage(pixels: []const u8, size: winit.Size) os.HICON {
+    const bi = os.BITMAPV5HEADER{
+        .bV5Width = size.width,
+        .bV5Height = -@as(i32, @intCast(size.height)),
+        .bV5Planes = 1,
+        .bV5BitCount = 32,
+        .bV5Compression = 3,
+        .bV5RedMask = 0x000000FF,
+        .bV5GreenMask = 0x0000FF00,
+        .bV5BlueMask = 0x00FF0000,
+        .bV5AlphaMask = 0xFF000000,
+    };
+
+    var target: [*]u8 = undefined;
+
+    const dc = os.GetDC(null);
+    defer _ = os.ReleaseDC(null, dc);
+
+    const color = os.CreateDIBSection(dc, @ptrCast(&bi), os.DIB_RGB_COLORS, @ptrCast(&target), null, 0);
+    defer _ = os.DeleteObject(@ptrCast(color));
+
+    const mask = os.CreateBitmap(size.width, size.height, 1, 1, null);
+    defer _ = os.DeleteObject(@ptrCast(mask));
+
+    @memcpy(target[0..pixels.len], pixels);
+
+    var ii = os.ICONINFO{
+        .fIcon = 1,
+        .xHotspot = 0,
+        .yHotspot = 0,
+        .hbmMask = mask,
+        .hbmColor = color,
+    };
+
+    return os.CreateIconIndirect(&ii);
 }
 
 //#endregion
