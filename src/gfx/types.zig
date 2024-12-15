@@ -248,6 +248,7 @@ pub const TextureAccess = enum { static, render_target };
 pub const TextureFormat = enum {
     rgb8,
     rgba8,
+    rgba5551,
     rgb565,
     rgba16f,
     depth,
@@ -258,6 +259,7 @@ pub const TextureFormat = enum {
         return switch (self) {
             .rgb8 => 3,
             .rgba8 => 4,
+            .rgba5551 => 2,
             .rgb565 => 2,
             .rgba16f => 8,
             .depth => 2,
@@ -274,6 +276,7 @@ pub const TextureFormat = enum {
         return switch (self) {
             .rgb8 => .{ g.RGB, g.RGB, g.UNSIGNED_BYTE },
             .rgba8 => .{ g.RGBA, g.RGBA, g.UNSIGNED_BYTE },
+            .rgba5551 => .{ g.RGBA, g.RGBA, g.UNSIGNED_SHORT_1_5_5_5_REV },
             .rgb565 => .{ g.RGB, g.RGB, g.UNSIGNED_SHORT_5_6_5 },
             .rgba16f => .{ g.RGBA16F, g.RGBA, g.FLOAT },
             .depth => .{ g.DEPTH_COMPONENT16, g.DEPTH_COMPONENT, g.UNSIGNED_SHORT },
